@@ -3,7 +3,10 @@ annotated-types==0.7.0
 anyio==4.11.0
 boto3==1.40.68
 botocore==1.40.68
+click==8.3.0
+colorama==0.4.6
 fastapi==0.121.0
+h11==0.16.0
 idna==3.11
 jmespath==1.0.1
 psycopg==3.2.12
@@ -19,3 +22,4 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzdata==2025.2
 urllib3==2.5.0
+uvicorn==0.38.0
