@@ -5,6 +5,11 @@ import psycopg
 import redis
 import boto3
 from botocore.client import Config
+from redis import Redis  # <-- [추가]
+from rq import Queue     # <-- [추가]
+# --- [추가] worker.py 파일에서 'example_task' 함수를 가져옵니다. ---
+# (worker.py 파일이 먼저 아래 코드로 수정되어야 합니다)
+from worker import example_task 
 
 # -------------------------------------------------------------------
 # 1. FastAPI 앱 생성
@@ -12,27 +17,24 @@ from botocore.client import Config
 app = FastAPI()
 
 # -------------------------------------------------------------------
-# 2. CORS 설정 (Sprint 0 - Step 4를 위해)
+# 2. [수정] CORS 설정 (React 앱 주소 추가)
 # -------------------------------------------------------------------
-# Render Web Service의 환경 변수(Environment Variable)에서
-# CORS_ORIGIN = "..." (React가 배포될 주소. 예: https://round-note-web.onrender.com)
-# 를 읽어옵니다.
 origins = [
-    os.environ.get("CORS_ORIGIN", "http://localhost:3000") # 개발용 localhost 포함
+    os.environ.get("CORS_ORIGIN_LOCAL", "http://localhost:3000"), # 로컬 개발용
+    os.environ.get("CORS_ORIGIN_PROD") # Render Static Site URL
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=[origin for origin in origins if origin], # None이 아닌 origin만 추가
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # -------------------------------------------------------------------
-# 3. 환경 변수에서 '비밀 키' 읽어오기 (Sprint 0 - Step 2)
+# 3. 환경 변수에서 '비밀 키' 읽어오기
 # -------------------------------------------------------------------
-# 이 값들은 Render의 환경 변수에서 자동으로 주입됩니다.
 DATABASE_URL = os.environ.get("DATABASE_URL")
 REDIS_URL = os.environ.get("REDIS_URL")
 NCP_ENDPOINT_URL = os.environ.get("NCP_ENDPOINT_URL")
@@ -40,15 +42,14 @@ NCP_ACCESS_KEY = os.environ.get("NCP_ACCESS_KEY")
 NCP_SECRET_KEY = os.environ.get("NCP_SECRET_KEY")
 
 # -------------------------------------------------------------------
-# 4. "Hello, World!" (Render가 실행되는지 확인)
+# 4. "Hello, World!"
 # -------------------------------------------------------------------
 @app.get("/")
 def read_root():
     return {"Hello": "FastAPI is running!"}
 
 # -------------------------------------------------------------------
-# 5. Sprint 0 - Step 3: "Health Check" 엔드포인트
-#    (모든 인프라 파이프라인이 뚫렸는지 검증)
+# 5. Health Check 엔드포인트
 # -------------------------------------------------------------------
 @app.get("/health-check")
 def health_check():
@@ -58,72 +59,71 @@ def health_check():
         "redis": "pending",
         "storage": "pending"
     }
+    
+    def get_redis_connection():
+        if REDIS_URL and REDIS_URL.startswith("rediss://"):
+             return redis.from_url(REDIS_URL, ssl_cert_reqs='required', decode_responses=True)
+        elif REDIS_URL:
+             return redis.from_url(REDIS_URL, decode_responses=True)
+        raise Exception("REDIS_URL이 설정되지 않았습니다.")
 
-    # 1. PostgreSQL (Supabase 또는 Render) 연결 테스트
+    # 1. PostgreSQL
     try:
         with psycopg.connect(DATABASE_URL) as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT 1")
                 if cur.fetchone():
                     results["db"] = "ok"
-                else:
-                    results["db"] = "failed query"
     except Exception as e:
-        results["db"] = f"error: {str(e)[:50]}..." # 에러 메시지 축약
+        results["db"] = f"error: {str(e)[:50]}..."
 
-    # 2. Redis (Upstash 또는 Render) 연결 테스트
+    # 2. Redis
     try:
-        # rediss:// URL은 ssl_cert_reqs='required'가 필요할 수 있습니다.
-        # Render 내부망(rediss://)은 보통 'required'가 필요합니다.
-        if REDIS_URL.startswith("rediss://"):
-             r = redis.from_url(REDIS_URL, ssl_cert_reqs='required', decode_responses=True)
-        else:
-             r = redis.from_url(REDIS_URL, decode_responses=True)
-
+        r = get_redis_connection()
         if r.ping():
             results["redis"] = "ok"
-        else:
-            results["redis"] = "failed ping"
     except Exception as e:
         results["redis"] = f"error: {str(e)[:50]}..."
 
-    # 3. NCP Object Storage 연결 테스트
+    # 3. NCP Object Storage
     try:
         s3 = boto3.client(
             's3',
             endpoint_url=NCP_ENDPOINT_URL,
             aws_access_key_id=NCP_ACCESS_KEY,
-            aws_secret_access_key=NCP_SECRET_KEY,
+            aws_secret_key=NCP_SECRET_KEY,
             config=Config(signature_version='s3v4')
         )
-        s3.list_buckets() # 인증 및 연결 테스트
+        s3.list_buckets()
         results["storage"] = "ok"
     except Exception as e:
         results["storage"] = f"error: {str(e)[:50]}..."
 
-    # 모든 검사가 'ok'가 아니면 500 에러 반환
     if not all(v == "ok" for k, v in results.items() if k != "status"):
         raise HTTPException(status_code=503, detail=results)
 
     return results
 
 # -------------------------------------------------------------------
-# 6. Sprint 0 - Step 3: "Test Job" 엔드포인트
-#    (FastAPI -> Redis -> RQ Worker 파이프라인 검증)
+# 6. [추가] "Test Job" 엔드포인트
 # -------------------------------------------------------------------
-from redis import Redis
-from rq import Queue
+def get_redis_for_rq():
+    """RQ가 사용할 Redis 연결 객체를 반환합니다."""
+    if REDIS_URL and REDIS_URL.startswith("rediss://"):
+        return Redis.from_url(REDIS_URL, ssl_cert_reqs='required')
+    elif REDIS_URL:
+        return Redis.from_url(REDIS_URL)
+    raise Exception("REDIS_URL이 설정되지 않아 RQ 큐를 생성할 수 없습니다.")
 
-q = Queue(connection=Redis.from_url(REDIS_URL))
+redis_conn_rq = get_redis_for_rq()
 
-def example_task(message):
-    """RQ Worker가 실행할 간단한 작업"""
-    print(f"RQ Worker received message: {message}")
-    return f"Message processed: {message}"
+# 'high-priority-queue' 이름으로 큐를 명시적으로 생성합니다.
+q = Queue("high-priority-queue", connection=redis_conn_rq)
 
 @app.post("/test-job")
 def post_test_job():
     try:
+        # 'worker.py'에서 가져온 'example_task'를 큐에 등록
         job = q.enqueue(example_task, "Hello from FastAPI!")
         return {"status": "job enqueued", "job_id": job.id}
     except Exception as e:

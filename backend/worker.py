@@ -25,7 +25,7 @@ except Exception as e:
     print(f"Redis 연결 실패: {e}")
     exit(1)
 
-# --- [수정] 작업(Task)을 worker.py에 정의합니다. ---
+# --- 작업(Task)을 worker.py에 정의합니다. ---
 def example_task(message):
     """
     FastAPI가 요청한 실제 작업.
@@ -42,11 +42,8 @@ if __name__ == '__main__':
     
     print(f"'{listen}' 큐를 감시합니다. 새 작업을 기다립니다...")
     
-    # 1. 큐 객체들을 생성합니다.
     queues = [Queue(name, connection=conn) for name in listen]
-    
-    # 2. 워커를 생성하고 큐와 연결 객체를 전달합니다.
     worker = Worker(queues, connection=conn)
     
-    # 3. work()는 무한 루프입니다.
+    # work()는 무한 루프입니다. 이 프로세스는 종료되지 않고 계속 실행됩니다.
     worker.work()
