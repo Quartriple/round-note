@@ -111,22 +111,22 @@ def health_check():
 # 6. Sprint 0 - Step 3: "Test Job" 엔드포인트
 #    (FastAPI -> Redis -> RQ Worker 파이프라인 검증)
 # -------------------------------------------------------------------
-# from redis import Redis
-# from rq import Queue
+from redis import Redis
+from rq import Queue
 
-# q = Queue(connection=Redis.from_url(REDIS_URL))
+q = Queue(connection=Redis.from_url(REDIS_URL))
 
-# def example_task(message):
-#     """RQ Worker가 실행할 간단한 작업"""
-#     print(f"RQ Worker received message: {message}")
-#     return f"Message processed: {message}"
+def example_task(message):
+    """RQ Worker가 실행할 간단한 작업"""
+    print(f"RQ Worker received message: {message}")
+    return f"Message processed: {message}"
 
-# @app.post("/test-job")
-# def post_test_job():
-#     try:
-#         job = q.enqueue(example_task, "Hello from FastAPI!")
-#         return {"status": "job enqueued", "job_id": job.id}
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Redis/RQ error: {str(e)}")
+@app.post("/test-job")
+def post_test_job():
+    try:
+        job = q.enqueue(example_task, "Hello from FastAPI!")
+        return {"status": "job enqueued", "job_id": job.id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Redis/RQ error: {str(e)}")
 
 # (참고: /test-job은 Redis 연결이 /health-check에서 확인된 후 구현해도 됩니다.)
