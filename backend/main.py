@@ -128,5 +128,3 @@ def post_test_job():
         return {"status": "job enqueued", "job_id": job.id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Redis/RQ error: {str(e)}")
-
-# (참고: /test-job은 Redis 연결이 /health-check에서 확인된 후 구현해도 됩니다.)
