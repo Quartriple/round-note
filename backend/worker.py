@@ -1,6 +1,6 @@
 import os
 import redis
-from rq import Worker, Queue  # <-- 'Connection' 임포트 제거
+from rq import Worker, Queue
 
 print("RQ Worker(일꾼) 프로세스가 시작됩니다...")
 
@@ -15,7 +15,6 @@ if not redis_url:
 conn = None
 try:
     if redis_url.startswith("rediss://"):
-        # Render의 내부망 SSL 연결은 'required'가 필요합니다.
         conn = redis.from_url(redis_url, ssl_cert_reqs='required')
     else:
         conn = redis.from_url(redis_url)
@@ -26,16 +25,22 @@ except Exception as e:
     print(f"Redis 연결 실패: {e}")
     exit(1)
 
+# --- [수정] 작업(Task)을 worker.py에 정의합니다. ---
+def example_task(message):
+    """
+    FastAPI가 요청한 실제 작업.
+    이 로그가 찍히면 Sprint 0 성공입니다!
+    """
+    print("--- [작업 수신 성공] ---")
+    print(f"RQ Worker received message: {message}")
+    print("--- [작업 완료] ---")
+    return f"Message processed: {message}"
 
 if __name__ == '__main__':
     # 'high-priority-queue'라는 이름의 큐를 감시합니다.
     listen = ['high-priority-queue']
     
     print(f"'{listen}' 큐를 감시합니다. 새 작업을 기다립니다...")
-    
-    # --- [수정된 부분] ---
-    # 'with Connection(conn):' 블록을 제거하고,
-    # Worker와 Queue에 'connection' 인자를 직접 전달합니다.
     
     # 1. 큐 객체들을 생성합니다.
     queues = [Queue(name, connection=conn) for name in listen]
