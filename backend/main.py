@@ -1,40 +1,39 @@
 import os
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import psycopg
 import redis
-import boto3
 from botocore.client import Config
-from redis import Redis  # <-- [추가]
-from rq import Queue     # <-- [추가]
-# --- [추가] worker.py 파일에서 'example_task' 함수를 가져옵니다. ---
-# (worker.py 파일이 먼저 아래 코드로 수정되어야 합니다)
-from worker import example_task 
+from redis import Redis 
+import boto3
+
+# [신규] API 계층에서 게이트웨이를 import 합니다. (폴더 구조에 맞게 수정)
+from backend.api import realtime_gateway # Pass 1
+from backend.api import batch_gateway    # Pass 2
 
 # -------------------------------------------------------------------
-# 1. FastAPI 앱 생성
+# 1. FastAPI 앱 생성 및 설정
 # -------------------------------------------------------------------
 app = FastAPI()
 
-# -------------------------------------------------------------------
-# 2. [수정] CORS 설정 (React 앱 주소 추가)
-# -------------------------------------------------------------------
+# 2. CORS 설정
 origins = [
-    os.environ.get("CORS_ORIGIN_LOCAL", "http://localhost:3000"), # 로컬 개발용
-    os.environ.get("CORS_ORIGIN") # Render Static Site URL
+    os.environ.get("CORS_ORIGIN_LOCAL", "http://localhost:3000"), 
+    os.environ.get("CORS_ORIGIN") # CORS_ORIGIN 환경 변수 사용
 ]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin for origin in origins if origin], # None이 아닌 origin만 추가
+    allow_origins=[origin for origin in origins if origin],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# -------------------------------------------------------------------
-# 3. 환경 변수에서 '비밀 키' 읽어오기
-# -------------------------------------------------------------------
+# 3. [핵심] API 라우터 포함 (경로 분리)
+app.include_router(realtime_gateway.router, prefix="/api/v1/realtime", tags=["Realtime"])
+app.include_router(batch_gateway.router, prefix="/api/v1/batch", tags=["Batch & Jobs"])
+
+# 4. 환경 변수 (Health Check용)
 DATABASE_URL = os.environ.get("DATABASE_URL")
 REDIS_URL = os.environ.get("REDIS_URL")
 NCP_ENDPOINT_URL = os.environ.get("NCP_ENDPOINT_URL")
@@ -42,15 +41,13 @@ NCP_ACCESS_KEY = os.environ.get("NCP_ACCESS_KEY")
 NCP_SECRET_KEY = os.environ.get("NCP_SECRET_KEY")
 
 # -------------------------------------------------------------------
-# 4. "Hello, World!"
+# 5. Health Check (모든 서비스 연결 확인)
 # -------------------------------------------------------------------
+# (이하 기존 health_check 코드는 변경 없이 그대로 유지)
 @app.get("/")
 def read_root():
     return {"Hello": "FastAPI is running!"}
 
-# -------------------------------------------------------------------
-# 5. Health Check 엔드포인트
-# -------------------------------------------------------------------
 @app.get("/health-check")
 def health_check():
     results = {
@@ -103,27 +100,3 @@ def health_check():
         raise HTTPException(status_code=503, detail=results)
 
     return results
-
-# -------------------------------------------------------------------
-# 6. [추가] "Test Job" 엔드포인트
-# -------------------------------------------------------------------
-def get_redis_for_rq():
-    """RQ가 사용할 Redis 연결 객체를 반환합니다."""
-    if REDIS_URL and REDIS_URL.startswith("rediss://"):
-        return Redis.from_url(REDIS_URL, ssl_cert_reqs='required')
-    elif REDIS_URL:
-        return Redis.from_url(REDIS_URL)
-    raise Exception("REDIS_URL이 설정되지 않아 RQ 큐를 생성할 수 없습니다.")
-
-
-@app.post("/test-job")
-def post_test_job():
-    try:
-        redis_conn_rq = get_redis_for_rq()
-        q = Queue("high-priority-queue", connection=redis_conn_rq)
-        
-        # 'worker.py'에서 가져온 'example_task'를 큐에 등록
-        job = q.enqueue(example_task, "Hello from FastAPI!")
-        return {"status": "job enqueued", "job_id": job.id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Redis/RQ error: {str(e)}")
