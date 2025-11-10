@@ -29,7 +29,6 @@ except Exception as e:
 def example_task(message):
     """
     FastAPI가 요청한 실제 작업.
-    이 로그가 찍히면 Sprint 0 성공입니다!
     """
     print("--- [작업 수신 성공] ---")
     print(f"RQ Worker received message: {message}")
