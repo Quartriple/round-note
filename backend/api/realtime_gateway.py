@@ -4,8 +4,8 @@ import websockets
 import json
 import logging
 
-from backend.core import stt_service
-from backend.core import llm_service
+from ..core import stt_service
+from ..core import llm_service
 
 router = APIRouter()
 
