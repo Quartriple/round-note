@@ -21,7 +21,7 @@ app = FastAPI()
 # -------------------------------------------------------------------
 origins = [
     os.environ.get("CORS_ORIGIN_LOCAL", "http://localhost:3000"), # 로컬 개발용
-    os.environ.get("CORS_ORIGIN_PROD") # Render Static Site URL
+    os.environ.get("CORS_ORIGIN") # Render Static Site URL
 ]
 
 app.add_middleware(
@@ -115,14 +115,13 @@ def get_redis_for_rq():
         return Redis.from_url(REDIS_URL)
     raise Exception("REDIS_URL이 설정되지 않아 RQ 큐를 생성할 수 없습니다.")
 
-redis_conn_rq = get_redis_for_rq()
-
-# 'high-priority-queue' 이름으로 큐를 명시적으로 생성합니다.
-q = Queue("high-priority-queue", connection=redis_conn_rq)
 
 @app.post("/test-job")
 def post_test_job():
     try:
+        redis_conn_rq = get_redis_for_rq()
+        q = Queue("high-priority-queue", connection=redis_conn_rq)
+        
         # 'worker.py'에서 가져온 'example_task'를 큐에 등록
         job = q.enqueue(example_task, "Hello from FastAPI!")
         return {"status": "job enqueued", "job_id": job.id}
