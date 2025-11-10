@@ -91,7 +91,7 @@ def health_check():
             's3',
             endpoint_url=NCP_ENDPOINT_URL,
             aws_access_key_id=NCP_ACCESS_KEY,
-            aws_secret_key=NCP_SECRET_KEY,
+            aws_secret_access_key=NCP_SECRET_KEY,
             config=Config(signature_version='s3v4')
         )
         s3.list_buckets()
