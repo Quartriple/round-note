@@ -29,7 +29,7 @@ const useHealthCheck = () => {
                 setError(err.message);
                 setLoading(false);
             });
-    }, [apiUrl]);
+    }, []);
 
     // 3. 상태와 데이터를 반환합니다.
     return { healthCheckData, loading, error, apiUrl };

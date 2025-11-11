@@ -23,7 +23,42 @@ const useRealtimeStream = () => {
     const wsRef = useRef(null); // WebSocket 연결 객체
     const mediaStreamRef = useRef(null); // 마이크 스트림 객체
     const audioProcessorRef = useRef(null); // 오디오 노드(Node) 객체
+    const audioContextRef = useRef(null); // AudioContext 객체
 
+
+    // 이 함수는 모든 리소스(WebSocket, 마이크, 오디오 프로세서)를 정리합니다.
+    // stopRecording과 startRecording의 catch 블록에서 재사용됩니다.
+    const cleanupResources = useCallback(() => {
+        // 1. WebSocket 연결 닫기
+        if (wsRef.current) {
+            wsRef.current.close();
+            wsRef.current = null;
+            console.log("WebSocket 리소스 정리됨.");
+        }
+
+        // 2. 마이크 스트림 해제
+        if (mediaStreamRef.current) {
+            mediaStreamRef.current.getTracks().forEach(track => {
+                track.stop();
+            });
+            mediaStreamRef.current = null;
+            console.log("마이크 스트림 리소스 정리됨.");
+        }
+
+        // 3. AudioWorklet/프로세서 노드 해제
+        if (audioProcessorRef.current) {
+            audioProcessorRef.current.disconnect();
+            audioProcessorRef.current = null;
+            console.log("오디오 프로세서 리소스 정리됨.");
+        }
+
+        // AudioContext는 모든 노드와 스트림이 해제된 후 닫는 것이 안전합니다.
+        if (audioContextRef.current) {
+            audioContextRef.current.close();
+            audioContextRef.current = null;
+            console.log("AudioContext 리소스 정리됨.");
+        }
+    }, []);
 
     // -----------------------------------------------------------
     // A. 마이크 접근 및 오디오 스트림 시작
@@ -37,6 +72,7 @@ const useRealtimeStream = () => {
                 audio: { 
                     echoCancellation: true,
                     noiseSuppression: true,
+                    autoGainControl: true,
                     sampleRate: AUDIO_CONFIG.sampleRate
                  } 
             });
@@ -54,6 +90,7 @@ const useRealtimeStream = () => {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)({
                 sampleRate: AUDIO_CONFIG.sampleRate,
             });
+            audioContextRef.current = audioContext;
             
             // 3. [핵심] AudioWorklet Processor 파일 로드 (await 필요)
             await audioContext.audioWorklet.addModule('/mic-processor.js'); 
@@ -77,8 +114,8 @@ const useRealtimeStream = () => {
             };
 
             // 6. 오디오 파이프라인 연결: 마이크 -> 프로세서 -> 목적지(출력)
-            input.connect(processor);
             // processor를 destination에 연결해야 브라우저가 활성 상태로 유지합니다.
+            input.connect(processor);
             processor.connect(audioContext.destination);
 
             setIsRecording(true);
@@ -87,9 +124,10 @@ const useRealtimeStream = () => {
         } catch (e) {
             console.error("마이크/WebSocket 연결 오류:", e);
             alert("마이크 접근 권한이 거부되었거나 WebSocket 연결에 실패했습니다.");
+            cleanupResources();
             setIsRecording(false);
         }
-    }, [isRecording]);
+    }, [isRecording, cleanupResources]);
     
 
     // -----------------------------------------------------------
@@ -98,30 +136,7 @@ const useRealtimeStream = () => {
     const stopRecording = useCallback(() => {
         if (!isRecording) return;
         
-        // 1. WebSocket 연결 닫기 (가장 먼저)
-        if (wsRef.current) {
-            // FastAPI/Deepgram이 종료 신호를 받을 수 있도록 닫습니다.
-            wsRef.current.close();
-            wsRef.current = null;
-            console.log("WebSocket 연결 종료됨.");
-        }
-
-        // 2. 마이크 스트림 해제 (MediaStreamTrack.stop())
-        if (mediaStreamRef.current) {
-            mediaStreamRef.current.getTracks().forEach(track => {
-                track.stop(); // 마이크 권한을 해제합니다.
-            });
-            mediaStreamRef.current = null;
-            console.log("마이크 스트림 해제됨.");
-        }
-
-        // 3. AudioWorklet/프로세서 노드 해제
-        if (audioProcessorRef.current) {
-            // 노드 연결을 해제하고 참조를 제거합니다.
-            audioProcessorRef.current.disconnect();
-            audioProcessorRef.current = null;
-            console.log("오디오 프로세서 해제됨.");
-        }
+        cleanupResources();
 
         // 4. 상태 초기화
         setIsRecording(false);
@@ -130,7 +145,7 @@ const useRealtimeStream = () => {
         setTranscript(prev => prev + '\n[녹음 종료]');
         console.log("녹음 중지 완료.");
 
-    }, [isRecording]);
+    }, [isRecording, cleanupResources]);
 
     // -----------------------------------------------------------
     // C. WebSocket 메시지 수신
@@ -185,7 +200,7 @@ const useRealtimeStream = () => {
                 console.log("WebSocket 연결이 서버/클라이언트 측에서 닫혔습니다.");
                 // isRecording이 True인 상태에서 연결이 끊기면 오류로 간주하고 상태 정리
                 if (isRecording) {
-                    setIsRecording(false);
+                    stopRecording();
                     setTranscript(prev => prev + '\n[서버 연결 오류로 종료]');
                 }
             };
@@ -201,7 +216,7 @@ const useRealtimeStream = () => {
                 ws.onclose = null;
             }
         };
-    }, [wsRef.current, isRecording]);
+    }, [stopRecording, wsRef.current]);
 
 
     // 3. 외부에 노출할 상태와 함수를 반환합니다.

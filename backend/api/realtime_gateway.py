@@ -45,7 +45,18 @@ async def websocket_endpoint(websocket: WebSocket, translate: bool = True, summa
             
             # 4. 두 태스크 중 하나가 끝날 때까지 대기
             #    (보통 클라이언트 연결이 끊길 때까지 계속 실행됩니다.)
-            await asyncio.gather(forward_task, receive_task)
+            done, pending = await asyncio.wait(
+                [forward_task, receive_task],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            
+            for task in pending:
+                task.cancel()
+                # 취소가 완료될 때까지 잠시 대기
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
     except WebSocketDisconnect:
         # 5. React가 연결을 끊었을 때
@@ -56,7 +67,6 @@ async def websocket_endpoint(websocket: WebSocket, translate: bool = True, summa
         await websocket.send_json({"type": "error", "message": f"서버 오류: {e}"})
     finally:
         print(f"WebSocket 핸들러 종료")
-        await websocket.close()
 
 
 
@@ -108,6 +118,11 @@ async def handle_client_uplink(client_ws: WebSocket, dg_ws: websockets.WebSocket
         # 스트림 종료 알림 (기존과 동일)
         try:
             await dg_ws.send(json.dumps({"type": "CloseStream"}))
+        except Exception:
+            pass
+        try:
+            # 이 시점에 dg_ws가 아직 열려있다면 닫아줍니다.
+            await dg_ws.close()
         except Exception:
             pass
 

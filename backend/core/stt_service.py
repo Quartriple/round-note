@@ -10,12 +10,15 @@ DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY")
 # 쿼리 파라미터는 전사 품질과 기능(화자 분리, 한국어 등)을 결정합니다.
 DEEPGRAM_BASE_URL = "wss://api.deepgram.com/v1/listen"
 DEEPGRAM_PARAMS = (
-    "?punctuate=true"  # 구두점 추가
-    "&language=ko"     # 한국어 지정
+    # "?punctuate=true"  # 구두점 추가
+    "?language=ko"     # 한국어 지정
     "&model=nova-2"    # 최신 고성능 모델
     "&diarize=true"    # 화자 분리 (Pass 1 핵심 기능)
     "&encoding=linear16" # 오디오 인코딩 형식
     "&sample_rate=16000" # 오디오 샘플링 속도 (마이크/파일 표준)
+    "&smart_format=true" # 스마트 포맷팅 (숫자, 날짜 등)
+    # "&channel=1"        # 단일 채널 오디오
+    # "&endpointer=true" # 음성 활동 감지(선택 사항, 필요 시 활성화)
 )
 
 def get_realtime_stt_url() -> tuple[str, dict]:

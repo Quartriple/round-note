@@ -8,6 +8,7 @@ click==8.3.0
 colorama==0.4.6
 croniter==6.0.0
 distro==1.9.0
+dotenv==0.9.9
 fastapi==0.121.0
 h11==0.16.0
 httpcore==1.0.9
@@ -21,6 +22,7 @@ psycopg-binary==3.2.12
 pydantic==2.12.4
 pydantic_core==2.41.5
 python-dateutil==2.9.0.post0
+python-dotenv==1.2.1
 pytz==2025.2
 redis==7.0.1
 rq==2.6.0

@@ -60,7 +60,7 @@ function MeetingPage() {
                 </div>
 
                 <p style={{ color: isRecording ? '#28a745' : '#6c757d', fontWeight: 'bold' }}>
-                    상태: {isRecording ? '🔴 녹음 중' : '⚪ 대기 중'}
+                        상태: {isRecording ? '🔴 녹음 중' : '⚪ 대기 중'}
                 </p>
 
                 {/* 전사 결과 창 */}
