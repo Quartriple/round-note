@@ -2,6 +2,9 @@ import os
 import json
 from openai import AsyncOpenAI
 import asyncio
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # 환경 변수에서 OpenAI API 키 로드
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")

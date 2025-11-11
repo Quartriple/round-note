@@ -31,7 +31,7 @@ async def websocket_endpoint(websocket: WebSocket, translate: bool = True, summa
         dg_url, dg_headers = stt_service.get_realtime_stt_url()
         
         # 2. Deepgram WebSocket에 연결
-        async with websockets.connect(dg_url, extra_headers=dg_headers) as dg_websocket:
+        async with websockets.connect(dg_url, additional_headers=dg_headers) as dg_websocket:
             print(f"Deepgram 연결 성공. 양방향 중계 시작.")
 
             # 3. 비동기 태스크 생성: React <-> Deepgram 양방향 중계
@@ -70,10 +70,18 @@ async def handle_client_uplink(client_ws: WebSocket, dg_ws: websockets.WebSocket
             # 1. [핵심] bytes, text 등 모든 유형의 메시지를 수신 (논블로킹 await)
             message = await client_ws.receive()
 
+            # 2. bytes (오디오 데이터): Deepgram으로 즉시 중계
             if message.get("bytes"):
-                # 2. bytes (오디오 데이터): Deepgram으로 즉시 중계
                 audio_data = message["bytes"]
-                await dg_ws.send(audio_data)
+                
+                if len(audio_data) > 0:
+                    pass# print(f"UPLINK RECEIVED: {len(audio_data)} bytes. Forwarding to Deepgram.") 
+                else:
+                    print("UPLINK RECEIVED: 0 bytes. Skipping forward.")
+
+                # 오디오 데이터가 0바이트보다 클 경우에만 Deepgram으로 전송
+                if len(audio_data) > 0:
+                    await dg_ws.send(audio_data)
 
             elif message.get("text"):
                 # 3. text (제어 메시지): JSON으로 파싱하여 설정 변경
@@ -114,7 +122,13 @@ async def forward_to_client(client_ws: WebSocket, dg_ws: websockets.WebSocketCli
     try:
         # 1. Deepgram으로부터 메시지를 비동기로 반복 수신 (Async For)
         async for message in dg_ws:
+            # print("DG RECEIVER: Message received from Deepgram.")
+            
             result = json.loads(message)
+            
+            if result.get("type") == "Metadata" or result.get("type") == "UtteranceEnd":
+                print(f"DG RECEIVER: Skipped Deepgram message type: {result.get('type')}")
+                continue
             
             # Deepgram 응답에서 전사 텍스트 추출 (로직은 streaming_way_DG.py 재활용)
             transcript = result.get("channel", {}).get("alternatives", [{}])[0].get("transcript", "")
@@ -153,7 +167,7 @@ async def get_translation_and_send(client_ws: WebSocket, text: str):
     Core Service를 호출하여 번역하고 결과를 React로 전송합니다.
     이 함수는 'forward_to_client'에서 asyncio.create_task로 호출됩니다.
     """
-    print(f"Translation Task Started for: {text[:20]}...")
+    print(f"Translation Task Started for: {text}")
     try:
         # 1. core/llm_service.py의 코어 함수 호출 (실제 API 통신)
         translated_text = await llm_service.get_translation(text)
@@ -164,7 +178,7 @@ async def get_translation_and_send(client_ws: WebSocket, text: str):
             "original_text": text,
             "translated_text": translated_text
         })
-        print(f"Translation Task Finished for: {text[:20]}...")
+        print(f"Translation Task Finished for: {text}")
         
     except Exception as e:
         print(f"OpenAI 번역 오류: {e}")

@@ -6,10 +6,13 @@ import redis
 from botocore.client import Config
 from redis import Redis 
 import boto3
+from dotenv import load_dotenv
 
 # [신규] API 계층에서 게이트웨이를 import 합니다. (폴더 구조에 맞게 수정)
-from backend.api import realtime_gateway # Pass 1
-from backend.api import batch_gateway    # Pass 2
+from .api import realtime_gateway # Pass 1
+from .api import batch_gateway    # Pass 2
+
+load_dotenv()
 
 # -------------------------------------------------------------------
 # 1. FastAPI 앱 생성 및 설정
@@ -31,7 +34,7 @@ app.add_middleware(
 
 # 3. [핵심] API 라우터 포함 (경로 분리)
 app.include_router(realtime_gateway.router, prefix="/api/v1/realtime", tags=["Realtime"])
-app.include_router(batch_gateway.router, prefix="/api/v1/batch", tags=["Batch & Jobs"])
+# app.include_router(batch_gateway.router, prefix="/api/v1/batch", tags=["Batch & Jobs"])
 
 # 4. 환경 변수 (Health Check용)
 DATABASE_URL = os.environ.get("DATABASE_URL")

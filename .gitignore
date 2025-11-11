@@ -1,6 +1,10 @@
+# Python
+*.pyc
 .venv
+__pycache__/
+.env
 
-# dependencies
+# React
 frontend/node_modules
 /.pnp
 .pnp.js

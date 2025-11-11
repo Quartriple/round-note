@@ -1,4 +1,7 @@
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # 환경 변수에서 Deepgram API 키를 로드합니다.
 DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY")
