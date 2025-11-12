@@ -216,7 +216,7 @@ const useRealtimeStream = () => {
                 ws.onclose = null;
             }
         };
-    }, [stopRecording, wsRef.current]);
+    }, [isRecording, stopRecording]);
 
 
     // 3. 외부에 노출할 상태와 함수를 반환합니다.
