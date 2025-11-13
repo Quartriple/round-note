@@ -13,6 +13,17 @@ const AUDIO_CONFIG = {
     bufferSize: 4096,
 };
 
+function float32ToInt16(float32Array) {
+    let int16Array = new Int16Array(float32Array.length);
+    for (let i = 0; i < float32Array.length; i++) {
+        // -1.0에서 1.0 범위로 클리핑
+        let s = Math.max(-1, Math.min(1, float32Array[i]));
+        // 16비트 정수로 변환
+        int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return int16Array;
+}
+
 const useRealtimeStream = () => {
     // 1. 상태 정의
     const [isRecording, setIsRecording] = useState(false);
@@ -25,12 +36,21 @@ const useRealtimeStream = () => {
     const isRecordingRef = useRef(false); // 최신 isRecording 상태를 추적
 
     // VAD 설정 - pause/listening 확인
-    const vad = useMicVAD({
+    const { loading: vadLoading, start: vadStart, pause: vadPause } = useMicVAD({
+        model: "v5",
         sampleRate: AUDIO_CONFIG.sampleRate,
-        onAudioData: (audioDataAsInt16Array) => {
-            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                wsRef.current.send(audioDataAsInt16Array.buffer);
+        baseAssetPath: '/',
+        onnxWASMBasePath: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/',
+        onFrameProcessed: (probs, frame) => {
+            const isSpeech = probs.isSpeech > 0.6;
+            // console.log(`VAD Frame Processed - isSpeech: ${isSpeech}, Probability: ${probs.isSpeech.toFixed(3)}`);
+            const int16Frame = float32ToInt16(frame);
+            
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && int16Frame.buffer.byteLength > 0) {
+                console.log("전송 데이터 타입:", int16Frame.buffer instanceof ArrayBuffer);
+                wsRef.current.send(int16Frame.buffer);
             }
+            
         },
         onSpeechStart: () => {
             console.log("VAD: Speech Started");
@@ -50,14 +70,13 @@ const useRealtimeStream = () => {
         console.log("리소스 정리 시작");
         
         // VAD 중지 - pause 메서드 사용
-        if (vad && typeof vad.pause === 'function') {
-            try {
-                vad.pause();
-                console.log("VAD 중지됨");
-            } catch (e) {
-                console.error("VAD 중지 오류:", e);
-            }
+        try {
+            vadPause();
+            console.log("VAD 중지됨");
+        } catch (e) {
+            console.error("VAD 중지 오류:", e);
         }
+        
 
         // WebSocket 연결 닫기
         if (wsRef.current) {
@@ -77,11 +96,11 @@ const useRealtimeStream = () => {
                 console.error("WebSocket 정리 오류:", e);
             }
         }
-    }, [vad]);
+    }, [vadPause]);
 
     // 녹음 시작
     const startRecording = useCallback(async () => {
-        if (vad.loading) {
+        if (vadLoading) {
             console.log("VAD 로딩 중...");
             return;
         }
@@ -122,15 +141,19 @@ const useRealtimeStream = () => {
 
             // WebSocket 메시지 핸들러 설정
             ws.onmessage = (event) => {
+                console.log("📩 WebSocket 메시지 수신:", event.data);
                 try {
                     const message = JSON.parse(event.data);
+                    console.log("파싱된 메시지:", message);
                     
                     switch (message.type) {
                         case 'partial_transcript':
+                            console.log("임시 전사:", message.text);
                             setPartialText(message.text);
                             break;
                             
                         case 'final_transcript':
+                            console.log("최종 전사:", message.text);
                             setTranscript(prev => {
                                 const newText = prev ? prev + '\n' + message.text : message.text;
                                 return newText;
@@ -139,6 +162,7 @@ const useRealtimeStream = () => {
                             break;
                             
                         case 'translation':
+                            console.log("번역 결과:", message.translated_text);
                             setTranslation(message.translated_text);
                             break;
                             
@@ -152,21 +176,42 @@ const useRealtimeStream = () => {
                     }
                 } catch (e) {
                     console.error("메시지 파싱 오류:", e);
+                    console.error("원본 데이터:", event.data);
                 }
             };
 
             // WebSocket 종료 핸들러
-            ws.onclose = () => {
-                console.log("WebSocket 연결 종료");
+            ws.onclose = (event) => {
+                console.log("🔴 WebSocket 연결 종료");
+                console.log("Close code:", event.code);
+                console.log("Close reason:", event.reason);
+                console.log("Was clean:", event.wasClean);
+                console.log("현재 녹음 상태:", isRecordingRef.current);
+                
+                // Close code 설명
+                const closeCodeMessages = {
+                    1000: "정상 종료",
+                    1001: "서버 종료",
+                    1006: "비정상 종료 (네트워크 오류 또는 서버 문제)",
+                    1011: "서버 내부 오류",
+                    1012: "서버 재시작",
+                };
+                console.log("종료 사유:", closeCodeMessages[event.code] || "알 수 없음");
+                
                 if (isRecordingRef.current) {
                     setIsRecording(false);
-                    setTranscript(prev => prev + '\n[서버 연결 종료]');
+                    setTranscript(prev => prev + `\n[서버 연결 종료 - Code: ${event.code}, ${closeCodeMessages[event.code] || "알 수 없음"}]`);
                 }
             };
 
+            // WebSocket 에러 핸들러 추가
+            ws.onerror = (error) => {
+                console.error("WebSocket 실행 중 오류:", error);
+            };
+
             // VAD 시작 - start 메서드 사용
-            if (typeof vad.start === 'function') {
-                vad.start();
+            if (typeof vadStart === 'function') {
+                vadStart();
                 console.log("VAD 시작됨");
             }
 
@@ -179,7 +224,7 @@ const useRealtimeStream = () => {
             setIsRecording(false);
             setTranscript('❌ 녹음 시작 실패: ' + e.message);
         }
-    }, [vad, cleanupResources]);
+    }, [vadLoading, vadStart, cleanupResources]);
 
     // 녹음 중지
     const stopRecording = useCallback(() => {
@@ -214,13 +259,13 @@ const useRealtimeStream = () => {
     }, []);
 
     return {
-        isRecording: isRecording || vad.loading,
+        isRecording: isRecording || vadLoading,
         transcript,
         partialText,
         translation,
         startRecording,
         stopRecording,
-        vadLoading: vad.loading,
+        vadLoading: vadLoading,
     };
 };
 
