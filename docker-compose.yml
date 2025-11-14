@@ -35,6 +35,9 @@ services:
     depends_on:
       - db       # 백엔드를 실행하기 전에 db와 redis가 먼저 실행되도록 순서 정의
       - redis
+    volumes:
+      - ./backend:/app/backend  # 코드 변경 시 자동 반영을 위해 소스 코드 마운트
+      - ./audio_storage:/app/audio_storage  # 오디오 파일 저장소 마운트
 
 # PostgreSQL 데이터 영속성 볼륨 정의
 volumes:
