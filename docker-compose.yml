@@ -1,0 +1,44 @@
+
+services:
+  # PostgreSQL 서비스 정의
+  db:
+    image: postgres:15-alpine
+    container_name: roundnote_db
+    environment:
+      # Docker 내부에서 사용할 PostgreSQL 환경 변수 (아래 .env 파일과 일치해야 함)
+      POSTGRES_USER: roundnote_user
+      POSTGRES_PASSWORD: roundnote_password
+      POSTGRES_DB: roundnote_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # 데이터 영속성을 위해 볼륨 연결
+
+  # Redis 서비스 정의
+  redis:
+    image: redis:7-alpine
+    container_name: roundnote_redis
+    ports:
+      - "6379:6379"
+
+  # FastAPI 백엔드 서비스 정의
+  backend:
+    container_name: roundnote_backend
+    # 위에서 작성한 backend/Dockerfile을 사용하여 이미지를 빌드합니다.
+    build: 
+      context: .
+      dockerfile: ./backend/Dockerfile
+    env_file:
+      - ./backend/.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db       # 백엔드를 실행하기 전에 db와 redis가 먼저 실행되도록 순서 정의
+      - redis
+    volumes:
+      - ./backend:/app/backend  # 코드 변경 시 자동 반영을 위해 소스 코드 마운트
+      - ./audio_storage:/app/audio_storage  # 오디오 파일 저장소 마운트
+
+# PostgreSQL 데이터 영속성 볼륨 정의
+volumes:
+  postgres_data:
