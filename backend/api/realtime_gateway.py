@@ -6,14 +6,34 @@ import logging
 import os
 import wave
 import ulid
+import boto3
+import tempfile
+import redis
+from rq import Queue
+from datetime import datetime
+import dotenv
 
-print(f"--- [DEBUG] 'ulid' 모듈 임포트 경로: {ulid.__file__} ---")
 from ..core import stt_service
 from ..core import llm_service
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] (%(name)s) %(message)s")
+dotenv.load_dotenv()
 
-LOCAL_STORAGE_PATH = "./audio_storage" # 오디오 파일이 저장될 로컬 디렉토리
+NCP_ENDPOINT_URL = os.environ.get("NCP_ENDPOINT_URL")
+NCP_ACCESS_KEY = os.environ.get("NCP_ACCESS_KEY")
+NCP_SECRET_KEY = os.environ.get("NCP_SECRET_KEY")
+NCP_BUCKET_NAME = os.environ.get("NCP_BUCKET_NAME")
+
+s3_client = boto3.client(
+    's3',
+    endpoint_url=NCP_ENDPOINT_URL,
+    aws_access_key_id=NCP_ACCESS_KEY,
+    aws_secret_access_key=NCP_SECRET_KEY
+)
+
+redis_conn = redis.Redis(host='redis', port=6379)
+rq_queue = Queue('roundnote_jobs', connection=redis_conn)
+
 WAV_SAMPLE_RATE = 16000 # 16kHz (Deepgram 호환)
 WAV_CHANNELS = 1       # Mono
 WAV_SAMPWIDTH = 2      # 16-bit (2 bytes, streaming_way_DG.py의 'int16'과 동일)

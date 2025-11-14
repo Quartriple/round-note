@@ -2,7 +2,7 @@
 services:
   # PostgreSQL 서비스 정의
   db:
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15
     container_name: roundnote_db
     environment:
       # Docker 내부에서 사용할 PostgreSQL 환경 변수 (아래 .env 파일과 일치해야 함)
@@ -30,6 +30,9 @@ services:
       dockerfile: ./backend/Dockerfile
     env_file:
       - ./backend/.env
+    environment:
+      # Python이 /app 디렉토리에서도 모듈을 찾도록 경로 추가
+      - PYTHONPATH=/app
     ports:
       - "8000:8000"
     depends_on:
@@ -38,6 +41,8 @@ services:
     volumes:
       - ./backend:/app/backend  # 코드 변경 시 자동 반영을 위해 소스 코드 마운트
       - ./audio_storage:/app/audio_storage  # 오디오 파일 저장소 마운트
+    working_dir: /app/backend
+    command: /bin/sh -c "alembic upgrade head && uvicorn backend.main:app --host 0.0.0.0 --port 8000"
 
 # PostgreSQL 데이터 영속성 볼륨 정의
 volumes:
