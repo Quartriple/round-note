@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
+    "@ricky0123/vad-react": "^0.0.35",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
@@ -13,7 +14,9 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
+    "prestart": "cp ./node_modules/@ricky0123/vad-web/dist/silero_vad_v5.onnx ./public/ && cp ./node_modules/@ricky0123/vad-web/dist/vad.worklet.bundle.min.js ./public/",
     "start": "react-scripts start",
+    "prebuild": "cp ./node_modules/@ricky0123/vad-web/dist/silero_vad_v5.onnx ./public/ && cp ./node_modules/@ricky0123/vad-web/dist/vad.worklet.bundle.min.js ./public/",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"

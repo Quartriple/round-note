@@ -3,9 +3,20 @@ import asyncio
 import websockets
 import json
 import logging
+import os
+import wave
+import ulid
 
+print(f"--- [DEBUG] 'ulid' 모듈 임포트 경로: {ulid.__file__} ---")
 from ..core import stt_service
 from ..core import llm_service
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] (%(name)s) %(message)s")
+
+LOCAL_STORAGE_PATH = "./audio_storage" # 오디오 파일이 저장될 로컬 디렉토리
+WAV_SAMPLE_RATE = 16000 # 16kHz (Deepgram 호환)
+WAV_CHANNELS = 1       # Mono
+WAV_SAMPWIDTH = 2      # 16-bit (2 bytes, streaming_way_DG.py의 'int16'과 동일)
 
 router = APIRouter()
 
@@ -26,6 +37,22 @@ async def websocket_endpoint(websocket: WebSocket, translate: bool = True, summa
     
     settings = TranscribeSettings(translate=translate, summary=summary)
     
+    os.makedirs(LOCAL_STORAGE_PATH, exist_ok=True)
+    meeting_id = str(ulid.new())
+    file_path = os.path.join(LOCAL_STORAGE_PATH, f"{meeting_id}.wav")
+    
+    wave_file = None
+    
+    try:
+        wave_file = wave.open(file_path, 'wb')
+        wave_file.setnchannels(WAV_CHANNELS)
+        wave_file.setsampwidth(WAV_SAMPWIDTH)
+        wave_file.setframerate(WAV_SAMPLE_RATE)
+        logging.info(f"로컬 오디오 저장 시작: {file_path}")
+    except Exception as e:
+        logging.error(f"오디오 파일 생성 오류: {e}")
+        await websocket.close(code=1011, reason="Failed to initialize audio storage.")
+    
     try:
         # 1. STT 서비스 코어 호출: Deepgram 연결 정보 획득
         dg_url, dg_headers = stt_service.get_realtime_stt_url()
@@ -37,7 +64,7 @@ async def websocket_endpoint(websocket: WebSocket, translate: bool = True, summa
             # 3. 비동기 태스크 생성: React <-> Deepgram 양방향 중계
             #    asyncio.create_task는 즉시 실행되지만 결과를 기다리지 않습니다.
             forward_task = asyncio.create_task(
-                handle_client_uplink(websocket, dg_websocket, settings)
+                handle_client_uplink(websocket, dg_websocket, settings, wave_file)
             )
             receive_task = asyncio.create_task(
                 forward_to_client(websocket, dg_websocket, settings)
@@ -66,11 +93,19 @@ async def websocket_endpoint(websocket: WebSocket, translate: bool = True, summa
         print(f"WebSocket 파이프라인 오류: {e}")
         await websocket.send_json({"type": "error", "message": f"서버 오류: {e}"})
     finally:
-        print(f"WebSocket 핸들러 종료")
+        if wave_file:
+            try:
+                # wave.close() 역시 동기 함수이므로 to_thread 사용
+                await asyncio.to_thread(wave_file.close)
+                logging.info(f"🔴 WebSocket 핸들러 종료 및 파일 저장 완료: {file_path}")
+            except Exception as e:
+                logging.error(f"❌ wave_file 닫기 실패: {e}")
+        else:
+            logging.info(f"🔴 WebSocket 핸들러 종료 (파일 객체 없음)")
 
 
 
-async def handle_client_uplink(client_ws: WebSocket, dg_ws: websockets.WebSocketClientProtocol, settings: TranscribeSettings):
+async def handle_client_uplink(client_ws: WebSocket, dg_ws: websockets.WebSocketClientProtocol, settings: TranscribeSettings, wave_file: wave.Wave_write):
     """
     React로부터 오디오 청크(bytes)와 제어 메시지(JSON/text)를 모두 받아 처리합니다.
     """
@@ -85,13 +120,15 @@ async def handle_client_uplink(client_ws: WebSocket, dg_ws: websockets.WebSocket
                 audio_data = message["bytes"]
                 
                 if len(audio_data) > 0:
-                    pass# print(f"UPLINK RECEIVED: {len(audio_data)} bytes. Forwarding to Deepgram.") 
+                    await dg_ws.send(audio_data)
+                    
+                    try:
+                        await asyncio.to_thread(wave_file.writeframes, audio_data)
+                        
+                    except Exception as e:
+                        logging.warning(f"⚠️ 오디오 청크 로컬 쓰기 실패: {str(e)}")
                 else:
                     print("UPLINK RECEIVED: 0 bytes. Skipping forward.")
-
-                # 오디오 데이터가 0바이트보다 클 경우에만 Deepgram으로 전송
-                if len(audio_data) > 0:
-                    await dg_ws.send(audio_data)
 
             elif message.get("text"):
                 # 3. text (제어 메시지): JSON으로 파싱하여 설정 변경
@@ -115,7 +152,6 @@ async def handle_client_uplink(client_ws: WebSocket, dg_ws: websockets.WebSocket
     except Exception as e:
         print(f"Uplink Handler 오류: {e}")
     finally:
-        # 스트림 종료 알림 (기존과 동일)
         try:
             await dg_ws.send(json.dumps({"type": "CloseStream"}))
         except Exception:

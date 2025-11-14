@@ -25,3 +25,6 @@ frontend/node_modules
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# audio files
+/audio_storage/
