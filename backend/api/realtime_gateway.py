@@ -122,11 +122,10 @@ async def handle_client_uplink(client_ws: WebSocket, dg_ws: websockets.WebSocket
                 if len(audio_data) > 0:
                     await dg_ws.send(audio_data)
                     
-                    try:
-                        await asyncio.to_thread(wave_file.writeframes, audio_data)
-                        
+                    try: 
+                        await wave_file.writeframes(wave_file.writeframes, audio_data)
                     except Exception as e:
-                        logging.warning(f"⚠️ 오디오 청크 로컬 쓰기 실패: {str(e)}")
+                        logging.error(f"오디오 청크 로컬 쓰기 오류: {e}")
                 else:
                     print("UPLINK RECEIVED: 0 bytes. Skipping forward.")
 
