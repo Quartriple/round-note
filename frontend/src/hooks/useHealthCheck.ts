@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 
 // Render 환경 변수를 읽어 API 주소를 설정합니다.
-const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const useHealthCheck = () => {
     // 1. API 응답을 저장할 상태 정의
