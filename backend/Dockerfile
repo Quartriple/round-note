@@ -10,9 +10,14 @@ WORKDIR /app
 # requirements.txt 파일을 컨테이너로 복사합니다.
 COPY backend/requirements.txt .
 
-# requirements.txt에 명시된 라이브러리를 설치합니다.
-# --no-cache-dir 옵션은 불필요한 캐시를 남기지 않아 이미지 크기를 줄입니다.
-RUN pip install --no-cache-dir -r requirements.txt
+# 빌드 도구를 설치했다가 pip 설치 후 즉시 삭제합니다.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        libpq-dev \
+    && pip install --no-cache-dir -r requirements.txt \
+    && apt-get purge -y --auto-remove build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
 # 4. 애플리케이션 코드 복사
 # 현재 디렉터리(.)의 모든 파일을 컨테이너의 /app 디렉터리로 복사합니다.
