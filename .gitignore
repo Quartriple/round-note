@@ -63,7 +63,8 @@ __pycache__/
 .env.production.local
 
 # Local Data/Storage (User Uploads, DB files, VAD files)
-/audio_storage/
+audio_storage/
+backend/audio_storage/
 /data/
 /uploads/
 *.sqlite
