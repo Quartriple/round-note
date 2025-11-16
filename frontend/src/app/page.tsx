@@ -8,14 +8,14 @@ export default function Page() {
   const router = useRouter();
 
   return (
-    <VADTestPage />
-    // <Login
-    //   onLogin={() => {
-    //     router.push("/main"); // 로그인 성공 시 메인으로 이동
-    //   }}
-    //   onShowRegister={() => {
-    //     router.push("/register"); // 회원가입 페이지로 이동
-    //   }}
-    // />
+    <Login
+    onLogin={() => {
+      router.push("/main"); // 로그인 성공 시 메인으로 이동
+    }}
+    onShowRegister={() => {
+      router.push("/register"); // 회원가입 페이지로 이동
+    }}
+    />
+    // <VADTestPage />
   );
 }
