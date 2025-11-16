@@ -1,0 +1,370 @@
+import { useState, useEffect } from "react";
+import { Button } from "@/shared/ui/button";
+import { Input } from "@/shared/ui/input";
+import { Label } from "@/shared/ui/label";
+import { Card } from "@/shared/ui/card";
+import { ArrowLeft, Link2, CheckCircle2, AlertCircle, ExternalLink, XCircle } from "lucide-react";
+import { toast } from "sonner";
+import { Switch } from "@/shared/ui/switch";
+import { Badge } from "@/shared/ui/badge";
+
+interface PlatformSettingsProps {
+  onBack: () => void;
+}
+
+interface Platform {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  connected: boolean;
+  enabled: boolean; // 활성화 상태 (스위치로 제어)
+  apiKey?: string;
+  webhookUrl?: string;
+  color: string;
+}
+
+const STORAGE_KEY = "roundnote-platform-settings";
+
+export function PlatformSettings({ onBack }: PlatformSettingsProps) {
+  const [platforms, setPlatforms] = useState<Platform[]>([
+    {
+      id: "notion",
+      name: "Notion",
+      description: "회의록을 Notion 데이터베이스에 자동으로 동기화합니다",
+      icon: "📝",
+      connected: false,
+      enabled: false,
+      color: "border-slate-300 bg-slate-50"
+    },
+    {
+      id: "slack",
+      name: "Slack",
+      description: "회의 종료 시 Slack 채널에 요약 메시지를 전송합니다",
+      icon: "💬",
+      connected: false,
+      enabled: false,
+      color: "border-purple-300 bg-purple-50"
+    },
+    {
+      id: "google-calendar",
+      name: "Google Calendar",
+      description: "액션 아이템을 Google Calendar 이벤트로 추가합니다",
+      icon: "📅",
+      connected: false,
+      enabled: false,
+      color: "border-blue-300 bg-blue-50"
+    },
+    {
+      id: "jira",
+      name: "Jira",
+      description: "액션 아이템을 Jira 이슈로 생성합니다",
+      icon: "🔷",
+      connected: false,
+      enabled: false,
+      color: "border-indigo-300 bg-indigo-50"
+    }
+  ]);
+
+  const [expandedPlatform, setExpandedPlatform] = useState<string | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [webhookInput, setWebhookInput] = useState("");
+
+  useEffect(() => {
+    // Load saved settings
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        setPlatforms(JSON.parse(saved));
+      } catch (error) {
+        console.error("Failed to load platform settings:", error);
+      }
+    }
+  }, []);
+
+  const saveSettings = (updatedPlatforms: Platform[]) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedPlatforms));
+    setPlatforms(updatedPlatforms);
+  };
+
+  // 상자 클릭 - 연동창 열기/닫기
+  const handleCardClick = (platformId: string) => {
+    const platform = platforms.find(p => p.id === platformId);
+    
+    if (expandedPlatform === platformId) {
+      // 이미 열려있으면 닫기
+      setExpandedPlatform(null);
+      setApiKeyInput("");
+      setWebhookInput("");
+    } else {
+      // 열기
+      setExpandedPlatform(platformId);
+      setApiKeyInput(platform?.apiKey || "");
+      setWebhookInput(platform?.webhookUrl || "");
+    }
+  };
+
+  // 스위치 토글 - 활성화/비활성화만
+  const toggleEnabled = (platformId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // 카드 클릭 이벤트 방지
+    
+    const platform = platforms.find(p => p.id === platformId);
+    
+    if (!platform?.connected) {
+      toast.error("먼저 연동을 완료해주세요");
+      return;
+    }
+
+    const updatedPlatforms = platforms.map(p => 
+      p.id === platformId 
+        ? { ...p, enabled: !p.enabled }
+        : p
+    );
+    
+    saveSettings(updatedPlatforms);
+    
+    const newState = !platform.enabled;
+    toast.success(`${platform.name} ${newState ? '활성화' : '비활성화'} 되었습니다`);
+  };
+
+  // 연동하기
+  const saveConnection = (platformId: string) => {
+    if (!apiKeyInput.trim()) {
+      toast.error("API 키 또는 토큰을 입력해주세요");
+      return;
+    }
+
+    const updatedPlatforms = platforms.map(p => 
+      p.id === platformId 
+        ? { ...p, connected: true, enabled: true, apiKey: apiKeyInput, webhookUrl: webhookInput }
+        : p
+    );
+    
+    saveSettings(updatedPlatforms);
+    setExpandedPlatform(null);
+    setApiKeyInput("");
+    setWebhookInput("");
+    
+    const platform = platforms.find(p => p.id === platformId);
+    toast.success(`${platform?.name} 연동이 완료되었습니다`);
+  };
+
+  // 연동 해제
+  const disconnectPlatform = (platformId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    const platform = platforms.find(p => p.id === platformId);
+    
+    const updatedPlatforms = platforms.map(p => 
+      p.id === platformId 
+        ? { ...p, connected: false, enabled: false, apiKey: undefined, webhookUrl: undefined }
+        : p
+    );
+    
+    saveSettings(updatedPlatforms);
+    setExpandedPlatform(null);
+    toast.success(`${platform?.name} 연동이 해제되었습니다`);
+  };
+
+  return (
+    <div className="bg-white rounded-2xl p-8 shadow-sm border border-border">
+      <div className="mb-6 flex items-center gap-4">
+        <Button
+          onClick={onBack}
+          variant="ghost"
+          size="icon"
+          className="hover:bg-muted"
+        >
+          <ArrowLeft className="w-5 h-5" />
+        </Button>
+        <div>
+          <h2 className="text-foreground">연동 플랫폼 설정</h2>
+          <p className="text-muted-foreground text-sm mt-1">
+            다양한 플랫폼과 연동하여 회의록을 자동으로 공유합니다
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        {platforms.map((platform) => (
+          <Card 
+            key={platform.id} 
+            className={`p-6 border-2 ${platform.color} transition-all cursor-pointer hover:shadow-md ${
+              expandedPlatform === platform.id ? 'ring-2 ring-primary' : ''
+            }`}
+            onClick={() => handleCardClick(platform.id)}
+          >
+            <div className="space-y-4">
+              {/* Platform Header */}
+              <div className="flex items-start justify-between">
+                <div className="flex items-start gap-3 flex-1">
+                  <span className="text-3xl">{platform.icon}</span>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Label className="text-lg">{platform.name}</Label>
+                      {platform.connected && (
+                        <Badge className="bg-green-500 hover:bg-green-600">
+                          <CheckCircle2 className="w-3 h-3 mr-1" />
+                          연동됨
+                        </Badge>
+                      )}
+                      {platform.connected && platform.enabled && (
+                        <Badge className="bg-[#FFA726] hover:bg-[#FB8C00]">
+                          활성
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {platform.description}
+                    </p>
+                  </div>
+                </div>
+                
+                <div onClick={(e) => toggleEnabled(platform.id, e)}>
+                  <Switch
+                    checked={platform.enabled}
+                    disabled={!platform.connected}
+                  />
+                </div>
+              </div>
+
+              {/* Configuration Form - 상자를 클릭하면 열림 */}
+              {expandedPlatform === platform.id && !platform.connected && (
+                <div className="mt-4 p-4 bg-white border-2 border-primary/20 rounded-lg space-y-4" onClick={(e) => e.stopPropagation()}>
+                  <div className="space-y-2">
+                    <Label htmlFor={`${platform.id}-api-key`}>
+                      API 키 / 토큰 *
+                    </Label>
+                    <Input
+                      id={`${platform.id}-api-key`}
+                      type="password"
+                      placeholder={`${platform.name} API 키 또는 토큰을 입력하세요`}
+                      value={apiKeyInput}
+                      onChange={(e) => setApiKeyInput(e.target.value)}
+                    />
+                  </div>
+
+                  {(platform.id === "slack" || platform.id === "notion") && (
+                    <div className="space-y-2">
+                      <Label htmlFor={`${platform.id}-webhook`}>
+                        Webhook URL (선택사항)
+                      </Label>
+                      <Input
+                        id={`${platform.id}-webhook`}
+                        type="url"
+                        placeholder="Webhook URL을 입력하세요"
+                        value={webhookInput}
+                        onChange={(e) => setWebhookInput(e.target.value)}
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      onClick={() => saveConnection(platform.id)}
+                      size="sm"
+                      className="gap-2 bg-primary hover:bg-primary/90"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      연동하기
+                    </Button>
+                    <Button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedPlatform(null);
+                        setApiKeyInput("");
+                        setWebhookInput("");
+                      }}
+                      size="sm"
+                      variant="outline"
+                    >
+                      취소
+                    </Button>
+                  </div>
+
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="mb-1">API 키 발급 방법</p>
+                        <a 
+                          href={`https://developers.${platform.id}.com/docs/authentication`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-blue-600 hover:underline"
+                        >
+                          {platform.name} 개발자 문서 보기
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Connected Info - 상자를 클릭하면 열림 */}
+              {expandedPlatform === platform.id && platform.connected && (
+                <div className="mt-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+                  <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5" />
+                      <div className="text-sm text-green-700 flex-1">
+                        <p className="">연동 완료</p>
+                        <p className="text-xs mt-1">
+                          회의록이 자동으로 {platform.name}에 동기화됩니다
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <Button
+                    onClick={(e) => disconnectPlatform(platform.id, e)}
+                    size="sm"
+                    variant="destructive"
+                    className="gap-2 w-full"
+                  >
+                    <XCircle className="w-4 h-4" />
+                    연동 해제
+                  </Button>
+                </div>
+              )}
+            </div>
+          </Card>
+        ))}
+
+        {/* Summary */}
+        <Card className="p-6 bg-primary/5 border-primary/20">
+          <div className="flex items-start gap-3">
+            <Link2 className="w-5 h-5 text-primary mt-0.5" />
+            <div>
+              <Label className="text-base text-foreground">연동 상태</Label>
+              <p className="text-sm text-muted-foreground mt-1">
+                현재 {platforms.filter(p => p.connected).length}개의 플랫폼이 연동되어 있습니다
+              </p>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {platforms
+                  .filter(p => p.connected)
+                  .map(p => (
+                    <Badge key={p.id} variant="secondary" className={p.enabled ? "bg-[#FFA726] text-white" : ""}>
+                      {p.icon} {p.name} {p.enabled && "✓"}
+                    </Badge>
+                  ))}
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        {/* Info */}
+        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <h4 className="text-sm text-blue-900 mb-2">💡 플랫폼 연동 안내</h4>
+          <ul className="space-y-1 text-sm text-blue-700">
+            <li>• 카드를 클릭하면 연동 설정을 할 수 있습니다</li>
+            <li>• 스위치는 연동된 플랫폼의 활성화/비활성화를 제어합니다</li>
+            <li>• API 키는 안전하게 로컬 스토리지에 저장됩니다</li>
+            <li>• 연동을 해제하면 저장된 API 키가 삭제됩니다</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
