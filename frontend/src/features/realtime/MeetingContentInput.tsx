@@ -1,0 +1,899 @@
+import { useState, useEffect, useRef } from 'react';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
+import { Alert, AlertDescription } from '@/shared/ui/alert';
+import { Badge } from '@/shared/ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/ui/card';
+import { 
+  Mic, 
+  MicOff, 
+  AlertCircle, 
+  Save, 
+  ArrowLeft, 
+  Sparkles, 
+  Wand2, 
+  Users, 
+  FolderPlus, 
+  Calendar, 
+  Clock,
+  Copy,
+  Share2,
+  Menu,
+  Edit3,
+  ChevronDown,
+  Check,
+  FileText,
+  Brain,
+  Languages,
+  PauseCircle,
+  PlayCircle,
+  StopCircle
+} from 'lucide-react';
+import { projectId, publicAnonKey } from '@/utils/supabase/info';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/shared/ui/select';
+import { toast } from 'sonner';
+
+interface MeetingContentInputProps {
+  meetingInfo: { title: string; date: string; purpose?: string; participants?: string };
+  onComplete: (content: string, aiAnalysis?: any) => void;
+  onBack: () => void;
+}
+
+export function MeetingContentInput({ meetingInfo, onComplete, onBack }: MeetingContentInputProps) {
+  const [content, setContent] = useState('');
+  const [editableTitle, setEditableTitle] = useState(meetingInfo.title || '');
+  const [meetingDate, setMeetingDate] = useState(meetingInfo.date || new Date().toISOString().split('T')[0]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(true);
+  const [micPermissionDenied, setMicPermissionDenied] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState<any>(null);
+  const [analysisError, setAnalysisError] = useState<string>('');
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [inputLanguage, setInputLanguage] = useState('ko-KR');
+  const [outputLanguage, setOutputLanguage] = useState('ko-KR');
+  const [interimText, setInterimText] = useState('');
+  const [realtimeSummary, setRealtimeSummary] = useState('');
+  const [activeTab, setActiveTab] = useState<'transcribe' | 'summary'>('transcribe');
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  const contentEndRef = useRef<HTMLDivElement>(null);
+  const summaryEndRef = useRef<HTMLDivElement>(null);
+  const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const summaryIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Audio recording states
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
+  const [audioUrl, setAudioUrl] = useState<string>('');
+  const audioRecordingRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  // Load translation settings
+  useEffect(() => {
+    const translationSettings = localStorage.getItem('roundnote-translation-settings');
+    if (translationSettings) {
+      try {
+        const settings = JSON.parse(translationSettings);
+        const langCode = settings.language === 'en' ? 'en-US' : 'ko-KR';
+        setInputLanguage(langCode);
+        setOutputLanguage(langCode);
+      } catch (error) {
+        console.error('Failed to load translation settings:', error);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    // Check for speech recognition support
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    
+    if (!SpeechRecognition) {
+      setSpeechSupported(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = inputLanguage;
+
+    recognition.onresult = (event: any) => {
+      let interimTranscript = '';
+      let finalTranscript = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript + ' ';
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+
+      if (finalTranscript) {
+        setContent(prev => prev + finalTranscript);
+        setInterimText('');
+        setTimeout(() => {
+          contentEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+      } else if (interimTranscript) {
+        setInterimText(interimTranscript);
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error('Speech recognition error:', event.error);
+      if (event.error === 'no-speech') {
+        return;
+      }
+      if (event.error === 'not-allowed') {
+        setMicPermissionDenied(true);
+        setSpeechSupported(false);
+      }
+      setIsRecording(false);
+    };
+
+    recognition.onend = () => {
+      if (isRecording) {
+        recognition.start();
+      }
+    };
+
+    recognitionRef.current = recognition;
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, [isRecording, inputLanguage]);
+
+  useEffect(() => {
+    if (isRecording) {
+      recordingIntervalRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+    } else {
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
+    }
+
+    return () => {
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
+    };
+  }, [isRecording]);
+
+  // 실시간 요약 생성 (10초마다)
+  useEffect(() => {
+    if (isRecording && content.trim().length > 50) {
+      summaryIntervalRef.current = setInterval(() => {
+        generateRealtimeSummary();
+      }, 10000); // 10초마다 요약 생성
+    } else {
+      if (summaryIntervalRef.current) {
+        clearInterval(summaryIntervalRef.current);
+      }
+    }
+
+    return () => {
+      if (summaryIntervalRef.current) {
+        clearInterval(summaryIntervalRef.current);
+      }
+    };
+  }, [isRecording, content]);
+
+  const generateRealtimeSummary = async () => {
+    if (!content.trim() || isGeneratingSummary) return;
+
+    setIsGeneratingSummary(true);
+    
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-3ecf4837/analyze-meeting`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${publicAnonKey}`,
+          },
+          body: JSON.stringify({
+            content,
+            meetingTitle: editableTitle,
+            summaryOnly: true, // 요약만 요청
+          }),
+        }
+      );
+
+      if (response.ok) {
+        const analysis = await response.json();
+        if (analysis.summary) {
+          setRealtimeSummary(analysis.summary);
+          setTimeout(() => {
+            summaryEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+          }, 100);
+        }
+      }
+    } catch (error) {
+      console.error('Realtime summary error:', error);
+    } finally {
+      setIsGeneratingSummary(false);
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Start audio recording
+  const startAudioRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      
+      recorder.onstop = () => {
+        // Stop all tracks
+        stream.getTracks().forEach(track => track.stop());
+      };
+      
+      recorder.start();
+      audioRecordingRef.current = recorder;
+      toast.success('오디오 녹음이 시작되었습니다.');
+    } catch (error) {
+      console.error('Audio recording error:', error);
+      toast.error('오디오 녹음을 시작할 수 없습니다.');
+    }
+  };
+
+  // Stop audio recording (pause)
+  const stopAudioRecording = () => {
+    if (audioRecordingRef.current && audioRecordingRef.current.state !== 'inactive') {
+      audioRecordingRef.current.pause();
+      toast.info('오디오 녹음이 일시 중지되었습니다.');
+    }
+  };
+
+  // Resume audio recording
+  const resumeAudioRecording = () => {
+    if (audioRecordingRef.current && audioRecordingRef.current.state === 'paused') {
+      audioRecordingRef.current.resume();
+      toast.success('오디오 녹음이 재개되었습니다.');
+    }
+  };
+
+  // Finalize audio recording
+  const finalizeAudioRecording = (): Promise<string> => {
+    return new Promise((resolve) => {
+      if (audioRecordingRef.current && audioRecordingRef.current.state !== 'inactive') {
+        audioRecordingRef.current.onstop = () => {
+          if (audioChunksRef.current.length > 0) {
+            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            const audioUrl = URL.createObjectURL(audioBlob);
+            resolve(audioUrl);
+          } else {
+            // No recording, use sample audio
+            resolve('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3');
+          }
+        };
+        audioRecordingRef.current.stop();
+      } else {
+        // No recording, use sample audio
+        resolve('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3');
+      }
+    });
+  };
+
+  const toggleRecording = async () => {
+    if (!recognitionRef.current) return;
+
+    if (isRecording) {
+      recognitionRef.current.stop();
+      stopAudioRecording();
+      setIsRecording(false);
+      setInterimText('');
+      toast.success('녹음이 중지되었습니다.');
+    } else {
+      try {
+        await navigator.mediaDevices.getUserMedia({ audio: true });
+        setMicPermissionDenied(false);
+        recognitionRef.current.start();
+        startAudioRecording();
+        setIsRecording(true);
+        setRecordingTime(0);
+        toast.success('녹음이 시작되었습니다.');
+      } catch (error) {
+        if (error instanceof Error && error.name !== 'NotAllowedError') {
+          console.error('Microphone error:', error);
+        }
+        setMicPermissionDenied(true);
+        setSpeechSupported(false);
+        toast.error('마이크 권한이 필요합니다.');
+      }
+    }
+  };
+
+  const handleAIAnalysis = async () => {
+    if (!content.trim()) {
+      toast.error('분석할 회의 내용을 먼저 입력해주세요.');
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setAnalysisError('');
+    
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-3ecf4837/analyze-meeting`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${publicAnonKey}`,
+          },
+          body: JSON.stringify({
+            content,
+            meetingTitle: editableTitle,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'AI 분석에 실패했습니다.');
+      }
+
+      const analysis = await response.json();
+      setAiAnalysis(analysis);
+      toast.success('AI 분석이 완료되었습니다!');
+      console.log('AI Analysis result:', analysis);
+      
+    } catch (error) {
+      console.error('AI analysis error:', error);
+      setAnalysisError(error instanceof Error ? error.message : 'AI 분석 중 오류가 발생했습니다.');
+      toast.error('AI 분석에 실패했습니다.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!content.trim()) {
+      toast.error('회의 내용을 입력해주세요.');
+      return;
+    }
+
+    if (isRecording) {
+      recognitionRef.current.stop();
+      setIsRecording(false);
+    }
+
+    setIsProcessing(true);
+    
+    // Finalize audio recording and get URL
+    const recordedAudioUrl = await finalizeAudioRecording();
+    
+    // Add audio URL to analysis
+    const analysisWithAudio = {
+      ...aiAnalysis,
+      audioUrl: recordedAudioUrl
+    };
+    
+    setTimeout(() => {
+      onComplete(content, analysisWithAudio);
+      setContent('');
+      setAiAnalysis(null);
+      // Reset audio chunks for next recording
+      audioChunksRef.current = [];
+      setIsProcessing(false);
+      toast.success('회의록이 저장되었습니다!');
+    }, 800);
+  };
+
+  const handleCopyNotes = async () => {
+    if (!content.trim()) {
+      toast.error('복사할 내용이 없습니다.');
+      return;
+    }
+
+    try {
+      // Try modern Clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(content);
+        toast.success('노트가 클립보드에 복사되었습니다.');
+      } else {
+        // Fallback to legacy method
+        const textArea = document.createElement('textarea');
+        textArea.value = content;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+          const successful = document.execCommand('copy');
+          if (successful) {
+            toast.success('노트가 클립보드에 복사되었습니다.');
+          } else {
+            throw new Error('Copy failed');
+          }
+        } finally {
+          document.body.removeChild(textArea);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to copy text:', err);
+      toast.error('복사에 실패했습니다. 브라우저 설정을 확인해주세요.');
+      
+      // Provide alternative option
+      setTimeout(() => {
+        if (confirm('수동으로 복사하시겠습니까? 확인을 누르면 전체 텍스트를 선택합니다.')) {
+          // Create a selection for user to manually copy
+          const selection = window.getSelection();
+          const range = document.createRange();
+          const contentElement = contentEndRef.current?.previousElementSibling;
+          if (contentElement) {
+            range.selectNodeContents(contentElement);
+            selection?.removeAllRanges();
+            selection?.addRange(range);
+            toast.info('텍스트가 선택되었습니다. Ctrl+C (또는 Cmd+C)로 복사하세요.');
+          }
+        }
+      }, 500);
+    }
+  };
+
+  const getLanguageLabel = (code: string) => {
+    const labels: Record<string, string> = {
+      'ko-KR': '🇰🇷 한국어',
+      'en-US': '🇺🇸 English',
+      'ja-JP': '🇯🇵 日본어',
+      'zh-CN': '🇨🇳 중문'
+    };
+    return labels[code] || code;
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50/50 via-slate-50 to-indigo-50/50 pb-8 px-2 md:px-4 pt-4">
+      
+      {/* Top Bar with Title and Date */}
+      <Card className="mb-4 border-slate-200 shadow-md">
+        <CardContent className="p-4">
+          <div className="flex items-start justify-between gap-4 mb-2">
+            <Input
+              value={editableTitle}
+              onChange={(e) => setEditableTitle(e.target.value)}
+              className="text-xl md:text-2xl border-none p-0 w-1000px h-auto focus-visible:ring-0 focus-visible:ring-offset-0 font-semibold text-slate-800 placeholder:text-slate-400 flex-1"
+              placeholder="회의 제목을 입력하세요"
+            />
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground mb-3">
+            <div className="flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-primary" />
+              <Input
+                type="date"
+                value={meetingDate}
+                onChange={(e) => setMeetingDate(e.target.value)}
+                className="h-7 w-auto border-none shadow-none p-0 text-xs"
+              />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-primary" />
+              <span className="font-mono">{formatTime(recordingTime)}</span>
+            </div>
+            {isRecording && (
+              <Badge className="bg-red-500 hover:bg-red-600 text-white animate-pulse">
+                <span className="w-2 h-2 bg-white rounded-full mr-1.5"></span>
+                REC
+              </Badge>
+            )}
+          </div>
+
+          {/* 회의 정보 표시 */}
+          {(meetingInfo.purpose || meetingInfo.participants) && (
+            <div className="pt-3 border-t border-slate-200 space-y-2">
+              {meetingInfo.purpose && (
+                <div className="flex items-start gap-2 text-sm">
+                  <span className="text-slate-500 font-medium min-w-[60px]">목적:</span>
+                  <span className="text-slate-700">{meetingInfo.purpose}</span>
+                </div>
+              )}
+              {meetingInfo.participants && (
+                <div className="flex items-start gap-2 text-sm">
+                  <span className="text-slate-500 font-medium min-w-[60px]">참석자:</span>
+                  <span className="text-slate-700">{meetingInfo.participants}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Main Content Area with Tabs */}
+      <Card className="mb-4 border-slate-200 shadow-md">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-primary" />
+              <CardTitle className="text-lg">실시간 전사</CardTitle>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleCopyNotes}
+              className="gap-1.5 text-muted-foreground hover:text-primary"
+            >
+              <Copy className="w-4 h-4" />
+              <span className="hidden sm:inline">복사</span>
+            </Button>
+          </div>
+          
+          {/* 탭 메뉴 */}
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'transcribe' | 'summary')} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="transcribe" className="gap-2">
+                <Mic className="w-4 h-4" />
+                실시간 전사
+              </TabsTrigger>
+              <TabsTrigger value="summary" className="gap-2">
+                <Brain className="w-4 h-4" />
+                실시간 전사 요약
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </CardHeader>
+        <CardContent>
+          {/* 실시간 전사 탭 */}
+          {activeTab === 'transcribe' && (
+            <div>
+              {/* 녹취 시작 버튼 */}
+              <div className="mb-4 flex justify-center">
+                <Button
+                  onClick={toggleRecording}
+                  disabled={!speechSupported}
+                  size="lg"
+                  className={`w-full max-w-md gap-2 ${
+                    isRecording 
+                      ? 'bg-red-500 hover:bg-red-600' 
+                      : 'bg-red-500 hover:bg-red-600'
+                  } ${!speechSupported ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {isRecording ? (
+                    <>
+                      <StopCircle className="w-5 h-5" />
+                      녹취 중지
+                    </>
+                  ) : (
+                    <>
+                      <Mic className="w-5 h-5" />
+                      녹취 시작
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {/* 전사 내용 표시 영역 - 고정 높이 + 스크롤 */}
+              <div className="h-[400px] overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50">
+                {content || interimText ? (
+                  <div className="space-y-2">
+                    <div className="whitespace-pre-wrap text-slate-700 text-sm md:text-base leading-relaxed">
+                      {content}
+                      {interimText && (
+                        <span className="text-slate-400 italic">{interimText}</span>
+                      )}
+                      <div ref={contentEndRef} />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full text-center">
+                    {isRecording ? (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-center gap-2">
+                          {[0, 1, 2, 3, 4].map((i) => (
+                            <div
+                              key={i}
+                              className="w-1 bg-primary rounded-full animate-pulse"
+                              style={{
+                                height: '40px',
+                                animationDelay: `${i * 0.1}s`,
+                                animationDuration: '0.8s'
+                              }}
+                            />
+                          ))}
+                        </div>
+                        <p className="text-slate-500">음성을 듣고 있습니다...</p>
+                        <p className="text-xs text-slate-400">말씀하시면 자동으로 텍스트로 변환됩니다</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <Mic className="w-12 h-12 text-slate-300 mx-auto" />
+                        <p className="text-slate-500">녹취 시작 버튼을 눌러주세요</p>
+                        <p className="text-xs text-slate-400">음성이 실시간으로 텍스트로 변환됩니다</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 실시간 전사 요약 탭 */}
+          {activeTab === 'summary' && (
+            <div>
+              {/* 녹취 시작 버튼 */}
+              <div className="mb-4 flex gap-2 justify-center">
+                <Button
+                  onClick={toggleRecording}
+                  disabled={!speechSupported}
+                  size="lg"
+                  className={`flex-1 max-w-md gap-2 ${
+                    isRecording 
+                      ? 'bg-red-500 hover:bg-red-600' 
+                      : 'bg-red-500 hover:bg-red-600'
+                  } ${!speechSupported ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {isRecording ? (
+                    <>
+                      <StopCircle className="w-5 h-5" />
+                      녹취 중지
+                    </>
+                  ) : (
+                    <>
+                      <Mic className="w-5 h-5" />
+                      녹취 시작
+                    </>
+                  )}
+                </Button>
+                <Button
+                  onClick={() => {
+                    const sampleText = `안녕하세요. 오늘 회의를 시작하겠습니다.
+
+먼저 지난주 진행 상황에 대해 공유드리겠습니다. 마케팅팀에서 준비한 신규 캠페인 기획안이 완료되었고, 개발팀에서는 모바일 앱 베타 버전이 80% 정도 진행되었습니다.
+
+다음으로 이번 주 주요 안건에 대해 논의하겠습니다.
+
+첫 번째, 신제품 출시 일정에 대해 논의가 필요합니다. 개발 일정을 고려했을 때 다음 달 15일 출시가 적절해 보입니다. 김철수님께서 제품 QA를 담당해주시고, 이영희님께서는 마케팅 자료를 준비해주시기 바랍니다.
+
+두 번째, 예산 배분 건입니다. 광고비를 기존 500만원에서 700만원으로 증액하는 것이 좋겠다는 의견이 있었습니다. 이 부분은 다음 주까지 검토 후 최종 결정하기로 했습니다.
+
+세 번째, 고객 피드백 개선 방안입니다. 최근 고객 만족도 조사 결과 UI/UX 개선이 필요하다는 의견이 많았습니다. 디자인팀에서 다음 주까지 개선안을 제출하기로 했습니다.
+
+마지막으로 액션 아이템을 정리하겠습니다.
+- 김철수님: 제품 QA 진행, 마감일은 이번 주 금요일
+- 이영희님: 마케팅 자료 준비, 마감일은 다음 주 월요일  
+- 박민수님: 예산안 검토 및 보고서 작성, 마감일은 다음 주 수요일
+- 정수진님: UI/UX 개선안 제출, 마감일은 다음 주 금요일
+
+오늘 회의는 여기까지입니다. 수고하셨습니다.`;
+                    setContent(prev => prev + sampleText);
+                    toast.success('샘플 텍스트가 추가되었습니다.');
+                  }}
+                  variant="outline"
+                  size="lg"
+                  className="gap-2 whitespace-nowrap"
+                >
+                  <Edit3 className="w-5 h-5" />
+                  샘플 추가
+                </Button>
+              </div>
+
+              {/* 요약 내용 표시 영역 - 고정 높이 + 스크롤 */}
+              <div className="h-[400px] overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50">
+                {realtimeSummary ? (
+                  <div className="space-y-3">
+                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200">
+                      <div className="flex items-start gap-2 mb-2">
+                        <Brain className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-slate-800 mb-2">AI 실시간 요약</h4>
+                          <div className="whitespace-pre-wrap text-slate-700 text-sm leading-relaxed">
+                            {realtimeSummary}
+                          </div>
+                        </div>
+                      </div>
+                      {isGeneratingSummary && (
+                        <div className="flex items-center gap-2 text-xs text-slate-500 mt-2">
+                          <Sparkles className="w-3 h-3 animate-spin" />
+                          요약 업데이트 중...
+                        </div>
+                      )}
+                    </div>
+                    <div ref={summaryEndRef} />
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full text-center">
+                    {isRecording && content.trim().length > 50 ? (
+                      <div className="space-y-4">
+                        <Brain className="w-12 h-12 text-primary mx-auto animate-pulse" />
+                        <p className="text-slate-500">AI가 요약을 생성하고 있습니다...</p>
+                        <p className="text-xs text-slate-400">회의 내용이 쌓이면 자동으로 요약이 표시됩니다</p>
+                      </div>
+                    ) : isRecording ? (
+                      <div className="space-y-4">
+                        <Brain className="w-12 h-12 text-slate-300 mx-auto" />
+                        <p className="text-slate-500">회의 내용을 수집 중입니다...</p>
+                        <p className="text-xs text-slate-400">충분한 내용이 쌓이면 AI 요약이 시작됩니다</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <Brain className="w-12 h-12 text-slate-300 mx-auto" />
+                        <p className="text-slate-500">녹취 시작 버튼을 눌러주세요</p>
+                        <p className="text-xs text-slate-400">AI가 회의 내용을 자동으로 요약합니다</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Error Messages */}
+      {micPermissionDenied && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="w-4 h-4" />
+          <AlertDescription>
+            마이크 권한이 거부되었습니다. 브라우저 설정에서 마이크 권한을 허용해주세요.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {!speechSupported && !micPermissionDenied && (
+        <Alert className="mb-4">
+          <AlertCircle className="w-4 h-4" />
+          <AlertDescription>
+            이 브라우저는 음성 인식을 지원하지 않습니다. Chrome 브라우저를 사용해주세요.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* AI Analysis Prompt */}
+      {content && !aiAnalysis && (
+        <Card className="mb-4 border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+          <CardContent className="p-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-2">
+                <Brain className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-slate-800">AI 분석 준비 완료</p>
+                  <p className="text-xs text-slate-600">회의 내용을 분석하여 요약과 액션 아이템을 추출합니다</p>
+                </div>
+              </div>
+              <Button
+                onClick={handleAIAnalysis}
+                disabled={isAnalyzing}
+                className="gap-2 shrink-0 w-full sm:w-auto bg-primary hover:bg-primary/90"
+                size="sm"
+              >
+                {isAnalyzing ? (
+                  <>
+                    <Wand2 className="w-4 h-4 animate-spin" />
+                    분석 중...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    AI 분석 시작
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* AI Analysis Results */}
+      {aiAnalysis && (
+        <Card className="mb-4 border-green-200 bg-gradient-to-r from-green-50 to-emerald-50">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <Check className="w-5 h-5 text-green-600" />
+              <CardTitle className="text-base text-green-800">AI 분석 완료</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-2 text-sm">
+              <div className="flex items-start gap-2">
+                <FileText className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-medium text-green-800">요약</p>
+                  <p className="text-green-700 text-xs">{aiAnalysis.summary?.substring(0, 100)}...</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Check className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-medium text-green-800">액션 아이템</p>
+                  <p className="text-green-700 text-xs">{aiAnalysis.actionItems?.length || 0}개 발견됨</p>
+                </div>
+              </div>
+              {aiAnalysis.participants && (
+                <div className="flex items-start gap-2">
+                  <Users className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-medium text-green-800">참석자</p>
+                    <p className="text-green-700 text-xs">{aiAnalysis.participants.join(', ')}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-green-600 italic">저장 버튼을 누르면 AI 분석 결과가 함께 저장됩니다</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {analysisError && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="w-4 h-4" />
+          <AlertDescription>{analysisError}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* 언어 선택 및 회의 종료 버튼 */}
+      <Card className="mt-4 border-slate-200 shadow-md">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between gap-4">
+            {/* Language Selection */}
+            <div className="flex items-center gap-2">
+              <Languages className="w-4 h-4 text-primary" />
+              <Select value={inputLanguage} onValueChange={setInputLanguage}>
+                <SelectTrigger className="w-[140px] h-9 text-sm border-slate-200">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ko-KR">🇰🇷 한국어</SelectItem>
+                  <SelectItem value="en-US">🇺🇸 English</SelectItem>
+                  <SelectItem value="ja-JP">🇯🇵 日본어</SelectItem>
+                  <SelectItem value="zh-CN">🇨🇳 중문</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* 회의 종료 버튼 */}
+            <Button
+              onClick={handleSubmit}
+              disabled={isProcessing || !content.trim()}
+              size="lg"
+              className="gap-2 bg-emerald-500 hover:bg-emerald-600"
+            >
+              {isProcessing ? (
+                <>
+                  <Sparkles className="w-4 h-4 animate-spin" />
+                  저장 중...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  회의 종료
+                </>
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

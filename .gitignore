@@ -1,30 +1,74 @@
-# Python
+###################################################
+# 1. Frontend (Next.js / Node)
+###################################################
+# Dependencies
+/frontend/node_modules
+/frontend/package-lock.json
+/frontend/yarn.lock
+/frontend/pnpm-lock.yaml
+
+# Next.js / Build Artifacts
+/frontend/.next/
+/frontend/out/
+/frontend/dist/
+/frontend/build/
+
+# Next.js Cache (Turbopack cache)
+.next/cache/
+.next/static/
+.next/server/
+.next/tracing/
+/frontend/.next/cache
+/frontend/.next/static
+
+# TypeScript
+*.tsbuildinfo
+/frontend/next-env.d.ts
+
+# Logs
+/frontend/npm-debug.log*
+/frontend/yarn-debug.log*
+
+###################################################
+# 2. Backend (Python / FastAPI)
+###################################################
+# Python/OS Cache
 *.pyc
-.venv
 __pycache__/
+*~$
+*.swp
+*.bak
+*.orig
+
+# Virtual Environments
+.venv
+/backend/.venv
+/backend/env
+/backend/venv
+.vscode
+
+# Artifacts
+/backend/build/
+/backend/dist/
+/backend/*.egg-info
+
+###################################################
+# 3. Environment and Data
+###################################################
+# Local Environment Variables (MANDATORY)
 .env
-
-# React
-frontend/node_modules
-/.pnp
-.pnp.js
-
-# testing
-/coverage
-
-# production
-/build
-
-# misc
-.DS_Store
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# Local Data/Storage (User Uploads, DB files, VAD files)
+audio_storage/
+backend/audio_storage/
+/data/
+/uploads/
+*.sqlite
+*.db
 
-# audio files
-/audio_storage/
+# Docker
+docker-compose.override.yml
