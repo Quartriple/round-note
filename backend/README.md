@@ -27,12 +27,12 @@ backend/
 │       │   └── endpoints.py
 │       ├── meetings/         # 회의 관리 CRUD 라우터 (백엔드 리드)
 │       │   └── endpoints.py
-│       ├── realtime/         # 실시간 WebSocket 라우터 (백엔드 보조)
-│       │   └── endpoints.py
-│       └── reports/          # 보고서/요약 조회 라우터 (RAG & LangChain)
-│           └── endpoints.py
+       ├── realtime/         # 실시간 WebSocket 라우터 (백엔드 리드)
+       │   └── endpoints.py
+       └── reports/          # 보고서/요약 조회 라우터 (Integration & LLM)
+           └── endpoints.py
 │
-├── schemas/                  # Pydantic 스키마 정의 (백엔드 리드)
+├── schemas/                  # Pydantic 스키마 정의 (백엔드 리드 + Integration & LLM)
 │   ├── __init__.py
 │   ├── user.py               # UserCreate, Token 등 정의
 │   ├── meeting.py            # MeetingCreate, MeetingOut 등 정의
@@ -48,17 +48,17 @@ backend/
 └── core/                     # 핵심 비즈니스 로직 및 외부 서비스 통합
     ├── auth/                 # JWT/인증 로직 (백엔드 리드)
     │   └── security.py
-    ├── llm/                  # LLM/LangChain 파이프라인 (RAG & LangChain)
-    │   ├── service.py        # LLM 호출, 프롬프트 관리
-    │   ├── chain.py          # LangChain 체인 정의
-    │   └── rag/              # RAG 파이프라인
-    │       ├── retriever.py  # 문서 검색
-    │       └── vectorstore.py # 벡터 저장소 (pgvector)
-    ├── stt/                  # STT API 통합 (백엔드 보조)
+    ├── llm/                  # LLM/LangChain 파이프라인 (팀장 + Integration & LLM)
+    │   ├── service.py        # LLM 호출, 프롬프트 관리 (Integration & LLM)
+    │   ├── chain.py          # LangChain 체인 정의 (팀장)
+    │   └── rag/              # RAG 파이프라인 (팀장)
+    │       ├── retriever.py  # 문서 검색 (팀장)
+    │       └── vectorstore.py # 벡터 저장소 (pgvector) (팀장)
+    ├── stt/                  # STT API 통합 (백엔드 리드)
     │   └── service.py        # Deepgram API 호출
-    └── storage/              # NCP Object Storage I/O (백엔드 보조)
-        └── service.py        # 오디오 저장 및 다운로드 로직
-    └── integrations/         # 외부 서비스 통합 (Jira, Notion 등)
+    ├── storage/              # NCP Object Storage I/O (팀장)
+    │   └── service.py        # 오디오 저장 및 다운로드 로직
+    └── integrations/         # 외부 서비스 통합 (Integration & LLM)
         ├── __init__.py
         ├── jira_service.py   # Jira 이슈 생성/업데이트 로직
         └── notion_service.py # Notion 페이지/데이터 업로드 로직
@@ -164,17 +164,17 @@ docker logs -f roundnote-backend
 
 ## 역할 배분
 
-| 담당 역할 | 주요 책임 | 관련 파일 |
-|:---|:---|:---|
-| **백엔드 리드** | - API 라우터 설계/구현 (auth, meetings)<br>- 인증 & JWT 토큰 관리<br>- User/Meeting CRUD 함수<br>- Pydantic 스키마 정의<br>- DB 모델 관리 | `api/v1/auth/`, `api/v1/meetings/`<br>`crud/user.py`, `crud/meeting.py`<br>`schemas/`, `core/auth/`<br>`models.py` |
-| **RAG & LangChain** | - LLM 요약/분석 파이프라인<br>- RAG 시스템 (문서 검색/인덱싱)<br>- LangChain 체인 설계<br>- 액션 아이템/요약 생성<br>- 보고서 조회 API<br>- Summary/ActionItem CRUD | `core/llm/`, `core/llm/rag/`<br>`api/v1/reports/`<br>`crud/summary.py`<br>`crud/action_item.py`<br>`schemas/report.py` |
-| **백엔드 보조** | - 실시간 WebSocket 구현<br>- STT 통합 (Deepgram)<br>- 오디오 저장 (NCP Storage)<br>- 실시간 메시지 처리<br>- 음성 업로드/다운로드 | `api/v1/realtime/`<br>`core/stt/`<br>`core/storage/`<br>`worker.py` |
+| 담당 역할 | 담당자 | 주요 책임 | 관련 파일 |
+|:---|:---|:---|:---|
+| **팀장 (RAG & 저장소)** | 권현재 | - RAG 시스템 (문서 검색/인덱싱)<br>- LangChain 체인 설계<br>- 벡터 저장소 관리 (pgvector)<br>- NCP Object Storage 통합<br>- 오디오 저장 & 배치 처리<br>- 저장소 전반 관리 | `core/llm/rag/`<br>`core/storage/`<br>`core/llm/chain.py`<br>`crud/summary.py` |
+| **백엔드 리드 (STT/실시간/CRUD/인증)** | 김기찬 | - API 라우터 설계/구현 (auth, meetings)<br>- 실시간 WebSocket 구현<br>- STT 통합 (Deepgram)<br>- 인증 & JWT 토큰 관리<br>- User/Meeting CRUD 함수<br>- Pydantic 스키마 정의<br>- DB 모델 관리 | `api/v1/auth/`, `api/v1/meetings/`<br>`api/v1/realtime/`<br>`core/stt/`<br>`core/auth/`<br>`crud/user.py`, `crud/meeting.py`<br>`schemas/`, `models.py`<br>`worker.py` (오디오 청크 처리) |
+| **Integration & LLM** | 정유현 | - LLM 요약/분석 파이프라인<br>- LLM 서비스 초기화 & 관리<br>- 프롬프트 엔지니어링<br>- 액션 아이템/요약 생성<br>- 보고서 조회 API 구현<br>- Jira/Notion 외부 연동<br>- Summary/ActionItem CRUD | `core/llm/service.py`<br>`api/v1/reports/`<br>`core/integrations/`<br>`crud/action_item.py`<br>`schemas/report.py` |
 
 ---
 
 ## API 엔드포인트
 
-### 인증 (Auth) - 백엔드 리드
+### 인증 (Auth) - 백엔드 리드 (김기찬)
 ```
 POST   /api/v1/auth/register       회원가입
 POST   /api/v1/auth/login          로그인
@@ -183,7 +183,7 @@ GET    /api/v1/auth/me             현재 사용자 정보
 POST   /api/v1/auth/refresh        토큰 갱신
 ```
 
-### 회의 관리 (Meetings) - 백엔드 리드
+### 회의 관리 (Meetings) - 백엔드 리드 (김기찬)
 ```
 GET    /api/v1/meetings            회의 목록 조회
 POST   /api/v1/meetings            새 회의 생성
@@ -192,7 +192,7 @@ PUT    /api/v1/meetings/{id}       회의 정보 수정
 DELETE /api/v1/meetings/{id}       회의 삭제
 ```
 
-### 실시간 WebSocket (Realtime) - 백엔드 보조
+### 실시간 WebSocket (Realtime) - 백엔드 리드 (김기찬)
 ```
 WS     /api/v1/realtime/ws?translate=true&summary=false
 ```
@@ -217,7 +217,7 @@ WS     /api/v1/realtime/ws?translate=true&summary=false
 }
 ```
 
-### 보고서/요약 조회 (Reports) - RAG & LangChain
+### 보고서/요약 조회 (Reports) - Integration & LLM (정유현)
 ```
 GET    /api/v1/reports/{meeting_id}/summary     회의 요약
 GET    /api/v1/reports/{meeting_id}/action-items 액션 아이템
@@ -428,7 +428,7 @@ logger.error("LLM 요약 오류: %s", str(e))
 
 ## 주요 기능
 
-### 실시간 음성 인식 (STT) - 백엔드 보조
+### 실시간 음성 인식 (STT) - 백엔드 리드 (김기찬)
 
 **흐름:**
 1. 프론트엔드에서 오디오 청크 전송 (WebSocket)
@@ -443,7 +443,7 @@ logger.error("LLM 요약 오류: %s", str(e))
 - `api/v1/realtime/endpoints.py`
 - `worker.py`
 
-### LLM 분석 및 요약 - RAG & LangChain
+### LLM 분석 및 요약 - Integration & LLM (정유현) + 팀장 (권현재)
 
 **흐름:**
 1. 전사 완료 후 LLM으로 요약 및 액션 아이템 추출
@@ -461,7 +461,7 @@ logger.error("LLM 요약 오류: %s", str(e))
 - `crud/action_item.py`
 - `api/v1/reports/endpoints.py`
 
-### 저장소 관리 - 백엔드 보조
+### 저장소 관리 - 팀장 (권현재)
 
 **기능:**
 - 오디오 파일 NCP Object Storage 저장
@@ -473,7 +473,7 @@ logger.error("LLM 요약 오류: %s", str(e))
 - `api/v1/realtime/endpoints.py`
 - `models.py` (Meeting, ArtifactLog)
 
-### RAG 시스템 - RAG & LangChain
+### RAG 시스템 - 팀장 (권현재)
 
 **기능:**
 - 벡터 임베딩 저장 (pgvector)
@@ -655,10 +655,9 @@ docker-compose up -d
 
 | 역할 | 이름 | 담당 업무 |
 |:---|:---|:---|
-| 팀장 | 권현재 | 프로젝트 총괄 |
-| 백엔드 리드 | 김기찬 | User/Meeting CRUD, 인증 시스템 |
-| RAG & LangChain | - | LLM 분석, RAG 시스템 |
-| 백엔드 보조 | - | STT, WebSocket, 저장소 |
+| 팀장 (RAG & 저장소) | 권현재 | RAG/LangChain, 단어 검색, NCP 저장소, 벡터 저장소 |
+| 백엔드 리드| 김기찬 | STT, WebSocket, User/Meeting CRUD, 인증, 데이터베이스 |
+| Integration & LLM | 정유현 | LLM 요약/분석, Jira/Notion 연동, 액션 아이템 |
 
 ---
 
