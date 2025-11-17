@@ -535,10 +535,294 @@ logger.error("LLM 요약 오류: %s", str(e))
 
 ## 개발 진도 체크리스트 (남은 주요 작업)
 
-- [ ] LangChain + RAG 파이프라인 구현 (`core/llm/chain.py`, `core/llm/rag/`)
-- [ ] Reports 서비스 함수 구현 (`get_summary`, `regenerate_summary`, `get_action_items`)
-- [ ] Integration tests for Jira/Notion (mocked HTTP)
-- [ ] CI / deployment: update Docker Compose and add healthchecks
+### 김기찬 (백엔드 리드) - 우선순위순
+
+**Phase 1A (4-5일) - 필수**
+- [ ] User/Meeting CRUD API 완성
+  - [ ] POST /auth/register (회원가입)
+  - [ ] POST /auth/login (로그인, JWT 발급)
+  - [ ] GET /auth/me (현재 사용자)
+  - [ ] POST /meetings (회의 생성)
+  - [ ] GET /meetings (회의 목록, pagination)
+  - [ ] GET /meetings/{id} (회의 상세)
+  - [ ] PUT /meetings/{id}, DELETE /meetings/{id}
+  - [ ] 프론트엔드와 연결 (대시보드 회의 목록, 새 회의 생성)
+- [ ] WebSocket 메시지 포맷 확정 & 안정화 (1-2일)
+  - [ ] 클라이언트↔서버 메시지 형식 확정 (프론트와 협의)
+  - [ ] Deepgram API 오류 처리 (timeout, API key 만료)
+  - [ ] 자동 재연결 로직
+  - [ ] 프론트와 실시간 자막 연결 테스트
+
+**Phase 1B (1-2일) - Phase 1A 진행 중 병렬**
+- [ ] Reports API 라우터 틀 완성 (더미 데이터 반환)
+  - [ ] GET /reports/{meeting_id}/summary (임시 null 반환)
+  - [ ] GET /reports/{meeting_id}/action-items (임시 빈 배열)
+  - [ ] POST /reports/{meeting_id}/regenerate (RQ 작업만 등록)
+
+### 권현재 (팀장) - 우선순위순
+
+**Phase 2A (1-2일) - 병렬 진행 가능 (김기찬 기다리지 않기)**
+- [ ] NCP Object Storage 연결
+  - [ ] NCP SDK 초기화 (`core/storage/service.py`)
+  - [ ] GET /api/v1/health/storage 엔드포인트 구현
+  - [ ] 더미 파일 업로드/다운로드 테스트
+
+**Phase 2B (2-3일) - 병렬 진행 가능, 더미 데이터 사용**
+- [ ] LangChain + RAG 파이프라인 구현
+  - [ ] `core/llm/chain.py` - LangChain 체인 정의
+  - [ ] `core/llm/rag/vectorstore.py` - pgvector 연동
+  - [ ] `core/llm/rag/retriever.py` - 유사 문서 검색 로직
+  - [ ] 더미 회의 데이터로 RAG 테스트 (`tests/fixtures.py` 활용)
+
+**Phase 2C (1-2일) - Phase 2A 완료 후**
+- [ ] WebSocket과 Storage 통합
+  - [ ] 오디오 청크 메모리 버퍼링
+  - [ ] 회의 종료 시 NCP에 저장
+  - [ ] Meeting 모델에 `audio_path`, `audio_duration`, `status` 추가
+
+### 정유현 (Integration & LLM) - 우선순위순
+
+**Phase 3A (1일) - 즉시 병렬 진행 (더미 데이터 사용)**
+- [ ] LLMService 완성 (OpenAI API)
+  - [ ] `generate_summary()` - 더미 전사본으로 테스트
+  - [ ] `extract_action_items()` - JSON 형식 액션 아이템 생성
+  - [ ] 프롬프트 템플릿 최적화
+
+**Phase 3B (1-2일) - 병렬 진행, 더미 데이터 사용**
+- [ ] Reports 서비스 함수 구현
+  - [ ] `get_summary()` - DB 미사용, 더미 객체 반환
+  - [ ] `regenerate_summary()` - RQ 작업만 등록
+  - [ ] `get_action_items()` - 더미 리스트 반환
+  - [ ] `worker.py`에 비동기 작업 등록
+
+**Phase 3C (1-2일) - 병렬 진행, 더미 서비스 호출**
+- [ ] Reports API 엔드포인트 완성 (`api/v1/reports/endpoints.py`)
+  - [ ] GET /reports/{meeting_id}/summary
+  - [ ] GET /reports/{meeting_id}/action-items
+  - [ ] POST /reports/{meeting_id}/regenerate
+
+**Phase 3D (2-3일) - Phase 3A 완료 후**
+- [ ] Jira/Notion 연동
+  - [ ] `core/integrations/jira_service.py` - 액션 아이템을 Jira 이슈로 생성
+  - [ ] `core/integrations/notion_service.py` - 보고서를 Notion 페이지로 생성
+  - [ ] 통합 테스트 (실제 Jira/Notion 계정 필요)
+
+---
+
+## 병렬 작업 가이드 (더미 데이터 활용)
+
+> **핵심 전략**: 각 팀원이 상대방의 작업을 기다리지 않도록 **더미 데이터**를 사용하여 병렬 진행
+
+### 더미 데이터 구조 (`tests/fixtures.py`)
+
+```python
+from datetime import datetime
+from ulid import ULID
+
+DUMMY_USER = {
+    "user_id": str(ULID()),
+    "email": "test@roundnote.com",
+    "name": "테스트 사용자",
+    "password_hash": "hashed_password_here"
+}
+
+DUMMY_MEETING = {
+    "meeting_id": str(ULID()),
+    "creator_id": DUMMY_USER["user_id"],
+    "title": "Q4 전략 회의",
+    "purpose": "분기별 목표 설정",
+    "transcript": "안녕하세요. 이번 분기 목표에 대해 논의하겠습니다...",
+    "status": "COMPLETED",
+    "start_dt": datetime(2025, 11, 17, 10, 0),
+    "end_dt": datetime(2025, 11, 17, 11, 30),
+    "audio_path": "s3://roundnote/meetings/meeting-123.mp3"
+}
+
+DUMMY_ACTION_ITEMS = [
+    {
+        "item_id": str(ULID()),
+        "meeting_id": DUMMY_MEETING["meeting_id"],
+        "title": "마케팅 계획 수립",
+        "description": "Q4 마케팅 전략 수립",
+        "assignee_id": DUMMY_USER["user_id"],
+        "due_date": datetime(2025, 12, 15),
+        "priority": "HIGH",
+        "status": "PENDING"
+    },
+    {
+        "item_id": str(ULID()),
+        "meeting_id": DUMMY_MEETING["meeting_id"],
+        "title": "개발 일정 확인",
+        "description": "개발팀과 일정 조율",
+        "assignee_id": DUMMY_USER["user_id"],
+        "due_date": datetime(2025, 12, 20),
+        "priority": "MEDIUM",
+        "status": "PENDING"
+    }
+]
+
+DUMMY_SUMMARY = {
+    "summary_id": str(ULID()),
+    "meeting_id": DUMMY_MEETING["meeting_id"],
+    "content": "이 회의에서는 Q4 목표를 설정하고 마케팅 전략을 논의했습니다.",
+    "format": "markdown",
+    "created_at": datetime.now()
+}
+```
+
+### 각 팀원의 병렬 작업 예시
+
+**권현재 - RAG 파이프라인 (김기찬 기다리지 않기)**
+
+```python
+# backend/core/llm/rag/test_retriever.py
+from tests.fixtures import DUMMY_MEETING, DUMMY_SUMMARY
+
+def test_rag_retriever():
+    """더미 데이터로 RAG 검색 테스트"""
+    retriever = RAGRetriever()
+    results = retriever.retrieve(DUMMY_MEETING["transcript"], k=3)
+    assert len(results) <= 3
+    print("✓ RAG Retriever 작동 확인")
+
+def test_vectorstore():
+    """더미 데이터로 벡터 저장소 테스트"""
+    vectorstore = VectorStore()
+    vectorstore.add_embedding(
+        meeting_id=DUMMY_MEETING["meeting_id"],
+        text=DUMMY_MEETING["transcript"],
+        embedding=[0.1, 0.2, 0.3, ...]  # 1536차원 임베딩
+    )
+    print("✓ VectorStore 저장 확인")
+```
+
+**정유현 - LLM 서비스 (김기찬 기다리지 않기)**
+
+```python
+# backend/core/llm/test_service.py
+from tests.fixtures import DUMMY_MEETING, DUMMY_ACTION_ITEMS
+
+@pytest.mark.asyncio
+async def test_llm_summary():
+    """더미 전사본으로 요약 생성 테스트"""
+    llm_service = LLMService()
+    summary = await llm_service.generate_summary(DUMMY_MEETING["transcript"])
+    assert summary is not None
+    assert len(summary) > 10
+    print("✓ LLM 요약 생성 확인")
+
+@pytest.mark.asyncio
+async def test_action_items():
+    """더미 전사본으로 액션 아이템 추출 테스트"""
+    llm_service = LLMService()
+    items = await llm_service.extract_action_items(DUMMY_MEETING["transcript"])
+    assert len(items) > 0
+    assert "title" in items[0]
+    print("✓ 액션 아이템 추출 확인")
+
+# backend/core/integrations/test_jira.py
+def test_jira_integration():
+    """더미 액션 아이템으로 Jira 이슈 생성 테스트"""
+    jira_service = JiraService()
+    issue_key = jira_service.create_issue(
+        title=DUMMY_ACTION_ITEMS[0]["title"],
+        assignee="test@test.com",
+        description=DUMMY_ACTION_ITEMS[0]["description"]
+    )
+    assert issue_key is not None
+    print(f"✓ Jira 이슈 생성 확인: {issue_key}")
+```
+
+### Week별 타임라인 (병렬 작업 고려)
+
+**Week 1 (4-5일) - 병렬 진행**
+
+```
+김기찬:
+├─ User/Meeting CRUD (3-4일)
+└─ WebSocket 안정화 (1-2일)
+
+권현재: (김기찬 기다리지 않음)
+├─ NCP Storage 연동 (1-2일)
+├─ LangChain + RAG (2-3일) ← 더미 데이터 사용
+└─ WebSocket과 Storage 통합 (1-2일) ← 김기찬 완료 후
+
+정유현: (김기찬 기다리지 않음)
+├─ LLMService (1일) ← 더미 데이터 사용
+├─ Jira/Notion 서비스 (1-2일) ← 더미 액션 아이템 사용
+└─ Reports API (1-2일) ← 더미 서비스 호출
+```
+
+**Week 2 (2-3일) - 통합 & 연결**
+
+```
+모두:
+├─ 실제 데이터 연동
+├─ 프론트엔드 통합 테스트
+└─ 오류 수정 및 최적화
+```
+
+### 통합 테스트 (모든 팀원 준비 완료 후)
+
+```python
+# backend/tests/test_integration_e2e.py
+@pytest.mark.asyncio
+async def test_full_workflow():
+    """전체 end-to-end 플로우 테스트"""
+    client = AsyncClient(app=app, base_url="http://test")
+    
+    # 1. 회의 생성 (김기찬)
+    meeting_response = await client.post(
+        "/api/v1/meetings",
+        json={"title": "테스트 회의", "purpose": "기능 검증"},
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    meeting_id = meeting_response.json()["id"]
+    
+    # 2. 실시간 STT (김기찬) + 오디오 저장 (권현재)
+    async with client.websocket_connect(
+        f"/api/v1/realtime/ws?meeting_id={meeting_id}"
+    ) as ws:
+        await ws.send_json({"type": "audio", "data": base64_audio})
+        response = await ws.receive_json()
+        assert response["type"] == "final_transcript"
+    
+    # 3. 요약 생성 (정유현 + 권현재)
+    summary_response = await client.get(
+        f"/api/v1/reports/{meeting_id}/summary",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert summary_response.json()["content"] is not None
+    
+    # 4. Jira 이슈 생성 (정유현)
+    jira_response = await client.post(
+        f"/api/v1/reports/{meeting_id}/push-to-jira",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert jira_response.json()["jira_issue_key"] is not None
+    
+    print("✓ 전체 플로우 검증 완료")
+```
+
+### 브랜치 전략 (팀 단위 병렬 작업)
+
+```bash
+# 각 팀원이 자신의 브랜치에서 병렬 작업
+git checkout -b feat/kim-crud      # 김기찬
+git checkout -b feat/kwon-rag      # 권현재
+git checkout -b feat/jeong-llm     # 정유현
+
+# 각자의 변경사항을 커밋
+git add .
+git commit -m "Feat: implement [feature] with dummy data tests"
+
+# 완료 후 develop에 PR (conflict 최소화)
+git checkout develop
+git pull origin develop
+git merge feat/kim-crud
+git merge feat/kwon-rag
+git merge feat/jeong-llm
+```
 
 ---
 
