@@ -19,10 +19,11 @@
 
 | 역할 | 담당자 | 주요 업무 |
 |:---|:---|:---|
-| **팀장** | 권현재 | 프로젝트 총괄 |
-| **백엔드 리드** | 김기찬 | User/Meeting CRUD, 인증 시스템 |
-| **RAG & LangChain** | - | LLM 요약 분석, RAG 시스템 |
-| **백엔드 보조 (STT/실시간)** | - | WebSocket 실시간 처리, STT, 저장소 관리 |
+| **팀장** | 권현재 | RAG 시스템, 저장소 관리, NCP Object Storage, ASR 모델링(유사 시) |
+| **백엔드 리드** | 김기찬 | STT, WebSocket 실시간 처리, User/Meeting CRUD, 인증 시스템 |
+| **Integration & LLM** | 정유현 | LLM 요약 분석, 외부 서비스 통합(Jira, Notion) |
+| **프론트엔드** | 서동현 | - |
+| **프론트엔드** | 김선아 | - |
 
 ---
 
@@ -299,25 +300,6 @@ docker-compose logs -f backend
 - 유저 프로필 및 권한 관리
 - 회의 분석 리포트 (기간별 통계)
 - 모바일 앱 (PWA/RN)
-
----
-
-## 문제 해결
-
-**Docker 연결 오류**
-```bash
-docker-compose restart
-```
-
-**API 문서 404**
-```
-http://localhost:8000/docs 접속 확인
-```
-
-**DB 마이그레이션 오류**
-```bash
-alembic upgrade head
-```
 
 ---
 
