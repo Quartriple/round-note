@@ -16,6 +16,5 @@ export default function Page() {
       router.push("/register"); // 회원가입 페이지로 이동
     }}
     />
-    // <VADTestPage />
   );
 }
