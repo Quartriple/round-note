@@ -235,6 +235,17 @@ POST   /api/v1/reports/{meeting_id}/report/to-notion
 
 ---
 
+## 배포 전략
+
+### 개발 vs 배포 환경
+
+| 환경 | Frontend | Backend | DB | Redis | Object Storage |
+|------|----------|---------|-----|-------|----------------|
+| **로컬 개발** | localhost:3000 | localhost:8000 | Docker (local) | Docker (local) | NCP (VPC 테스트) |
+| **프로덕션** | Render | **NCP Compute** | **NCP Compute (Docker)** | **NCP Compute (Docker)** | **NCP (VPC 전용)** |
+
+**주요 변경**: Render 대신 NCP Compute로 전환하여 VPC 전용 Object Storage 사용 가능
+
 ## 로컬 개발
 
 ### 환경 설정
@@ -253,28 +264,152 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-### 환경 변수
+### 환경 변수 (로컬)
 
-`.env` 파일 생성 (backend 폴더):
+`backend/.env` 파일 생성:
 
 ```env
-DATABASE_URL=postgresql://roundnote:password@localhost:5432/roundnote
-REDIS_URL=redis://localhost:6379/0
+# Database & Cache
+DATABASE_URL=postgresql://roundnote_user:roundnote_password@db:5432/roundnote_db
+REDIS_URL=redis://redis:6379
+
+# External APIs
 OPENAI_API_KEY=sk-...
 DEEPGRAM_API_KEY=...
-JIRA_BASE_URL=...
-NOTION_API_TOKEN=...
-JWT_SECRET_KEY=...
+ELEVENLABS_API_KEY=...
+
+# NCP Object Storage
+NCP_ENDPOINT_URL=https://kr.object.ncloudstorage.com
+NCP_BUCKET_NAME=roundnote-bucket
+NCP_ACCESS_KEY=ncp_xxx
+NCP_SECRET_KEY=ncp_xxx
+
+# CORS
+CORS_ORIGIN_LOCAL=http://localhost:3000
+CORS_ORIGIN=https://round-note-web.onrender.com
+
+# JWT
+JWT_SECRET_KEY=your-secret-key-here
+JWT_ALGORITHM=HS256
 ```
 
-### Docker로 실행
+### Docker로 실행 (로컬)
 
 ```bash
 # 프로젝트 루트에서
 docker-compose up -d
 
+# 서비스 상태 확인
+docker-compose ps
+
 # 로그 확인
 docker-compose logs -f backend
+
+# FastAPI 문서 접속
+http://localhost:8000/docs
+```
+
+## NCP Compute 배포 (프로덕션)
+
+### 1단계: NCP Compute 인스턴스 생성
+
+- **OS**: Ubuntu 20.04 LTS
+- **사양**: 2vCPU, 4GB RAM (최소)
+- **VPC**: 기존 VPC 선택 (Object Storage와 동일)
+- **Public IP**: 할당 필수 (SSH 접속용)
+
+### 2단계: Compute 내에 Docker 설치
+
+```bash
+# SSH로 접속 후
+sudo apt update && sudo apt upgrade -y
+
+# Docker 설치
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+sudo usermod -aG docker $USER
+
+# Docker Compose 설치
+sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+
+# 버전 확인
+docker --version && docker-compose --version
+```
+
+### 3단계: 코드 배포
+
+```bash
+git clone https://github.com/2025-AISCHOOL-NLP-B/round-note.git
+cd round-note
+```
+
+### 4단계: 환경 변수 설정 (NCP)
+
+`backend/.env` 파일 생성:
+
+```bash
+cat > backend/.env << EOF
+# Database & Cache (NCP VPC 내부)
+DATABASE_URL=postgresql://roundnote_user:roundnote_password@db:5432/roundnote_db
+REDIS_URL=redis://redis:6379
+
+# External APIs
+OPENAI_API_KEY=sk-...
+DEEPGRAM_API_KEY=...
+ELEVENLABS_API_KEY=...
+
+# NCP Object Storage (VPC 전용)
+NCP_ENDPOINT_URL=https://kr.object.ncloudstorage.com
+NCP_BUCKET_NAME=roundnote-bucket
+NCP_ACCESS_KEY=ncp_xxx
+NCP_SECRET_KEY=ncp_xxx
+
+# CORS (Render 프론트)
+CORS_ORIGIN=https://round-note-web.onrender.com
+
+# JWT
+JWT_SECRET_KEY=your-production-secret-key
+JWT_ALGORITHM=HS256
+EOF
+```
+
+### 5단계: Docker Compose 실행
+
+```bash
+docker-compose up -d
+
+# 서비스 상태 확인
+docker-compose ps
+
+# 로그 확인
+docker-compose logs -f backend
+
+# 헬스 체크
+curl http://localhost:8000/api/v1/health-check
+```
+
+### 6단계: NCP 보안 그룹 설정
+
+**인바운드 규칙:**
+- SSH (22): 본인 IP만 허용
+- Backend API (8000): Render 또는 특정 IP에서만
+
+**아웃바운드 규칙:**
+- 모든 트래픽 허용 (외부 API 호출용)
+
+### 7단계: Frontend 환경변수 (Render)
+
+Render 대시보드 → Environment variables 추가:
+
+```bash
+REACT_APP_API_URL=http://<Ncp-Compute-PUBLIC-IP>:8000
+```
+
+Frontend 코드 (src/utils/api.ts):
+
+```typescript
+const API_URL = process.env.REACT_APP_API_URL || "http://localhost:8000";
 ```
 
 ---

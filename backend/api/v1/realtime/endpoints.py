@@ -4,6 +4,7 @@ import websockets
 import json
 import logging
 import wave
+import os
 
 from backend.dependencies import get_storage_service, get_llm_service, get_stt_service
 from backend.core.stt.service import STTService
@@ -80,11 +81,23 @@ async def websocket_endpoint(
     finally:
         if wave_file:
             try:
-                # wave.close() 역시 동기 함수이므로 to_thread 사용
                 await asyncio.to_thread(wave_file.close)
                 logging.info(f"🔴 WebSocket 핸들러 종료 및 파일 저장 완료: {file_path}")
+                
+                try:
+                    logging.info("NCP Object Storage 업로드 시작...")
+                    objecct_key = await storage_service.upload_to_ncp_object_stroage(file_path, meeting_id=os.path.basename(file_path).split('.')[0])
+                    logging.info(f"NCP Object Storage 업로드 완료. 객체 키: {objecct_key}")
+                    
+                    # TODO: 업로드된 객체 키를 DB에 저장하는 로직 추가
+                    # TODO: RQ에 작업 큐잉 ex) await redis_queue.enqueue("process_batch_transcription", meeting_id, object_key)
+                    
+                except Exception as e:
+                    logging.error(f"❌ NCP Object Storage 업로드 실패: {e}")
+                    
             except Exception as e:
                 logging.error(f"❌ wave_file 닫기 실패: {e}")
+                
         else:
             logging.info(f"🔴 WebSocket 핸들러 종료 (파일 객체 없음)")
 
