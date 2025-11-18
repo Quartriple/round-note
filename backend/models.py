@@ -8,8 +8,9 @@ from sqlalchemy.dialects.postgresql import (
     JSONB
 )
 from sqlalchemy.sql import func
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import declarative_base, relationship
 from pgvector.sqlalchemy import Vector
+
 
 # --- Base 및 ULID 기본값 설정 ---
 
@@ -45,6 +46,24 @@ class User(Base):
         CheckConstraint(STATUS.in_(['A', 'D']), name='ck_user_status'),
     )
 
+    # [추가코드]
+    # === 관계 설정 ===
+    meetings = relationship(
+        "Meeting",
+        back_populates="creator",
+        cascade="all, delete-orphan"
+    )
+    action_items = relationship(
+        "ActionItem",
+        back_populates="assignee",
+        cascade="all, delete-orphan"
+    )
+    knowledge_sources = relationship(
+        "KnowledgeSource",
+        back_populates="owner",
+        cascade="all, delete-orphan"
+    )
+
 # 2. 사용자설정
 class UserSetting(Base):
     __tablename__ = "USER_SETTING"
@@ -76,6 +95,48 @@ class Meeting(Base):
     CREATOR_ID = Column(TEXT, ForeignKey('"USER".USER_ID'), nullable=False)
     # NCP Object Key 저장용
     LOCATION = Column(TEXT, nullable=True)
+    
+    # [추가 코드]
+    # === 관계 설정 ===
+    creator = relationship(
+        "User",
+        back_populates="meetings",
+    )
+    stt_chunks = relationship(
+        "SttChunk",
+        back_populates="meeting",
+        cascade="all, delete-orphan"
+    )
+    summaries = relationship(
+        "Summary",
+        back_populates="meeting",
+        cascade="all, delete-orphan"
+    )
+    action_items = relationship(
+        "ActionItem",
+        back_populates="meeting",
+        cascade="all, delete-orphan"
+    )
+    chatbot_logs = relationship(
+        "ChatbotLog",
+        back_populates="meeting",
+        cascade="all, delete-orphan"
+    )
+    artifact_logs = relationship(
+        "ArtifactLog",
+        back_populates="meeting",
+        cascade="all, delete-orphan"
+    )
+    final_analyses = relationship(
+        "FinalAnalysis",
+        back_populates="meeting",
+        cascade="all, delete-orphan"
+    )
+    embeddings = relationship(
+        "Embedding",
+        back_populates="meeting",
+        cascade="all, delete-orphan"
+    )
 
 # 4. 전사 청크
 class SttChunk(Base):
@@ -92,6 +153,18 @@ class SttChunk(Base):
     text_vector = Column(Vector(1536), nullable=True)
     CREATED_DT = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
+    # [추가 코드]
+    # === 관계 설정 ===
+    meeting = relationship(
+        "Meeting",
+        back_populates="stt_chunks",
+    )
+    embeddings = relationship(
+        "Embedding",
+        back_populates="chunk",
+        cascade="all, delete-orphan"
+    )
+
 # 5. 요약
 class Summary(Base):
     __tablename__ = "SUMMARY"
@@ -104,6 +177,18 @@ class Summary(Base):
     CONTENT = Column(TEXT, nullable=False)
     PROMPT_ID = Column(TEXT, nullable=True)
     CREATED_DT = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+
+    # [추가 코드]
+    # === 관계 설정 ===
+    meeting = relationship(
+        "Meeting",
+        back_populates="summaries",
+    )
+    final_analyses = relationship(
+        "FinalAnalysis",
+        back_populates="summary",
+        cascade="all, delete-orphan"
+    )
 
 # 6. 액션 아이템
 class ActionItem(Base):
@@ -121,6 +206,29 @@ class ActionItem(Base):
     STATUS = Column(TEXT, nullable=False)
     CREATED_DT = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     UPDATED_DT = Column(TIMESTAMP(timezone=True), nullable=True, onupdate=func.now())
+    # [추가]
+    ASSIGNEE_ID = Column(TEXT, ForeignKey('"USER".USER_ID'), nullable=True)
+    # 제약조건 : 상태/우선순위를 정해진 값만 쓰게 하는 코드
+    __table_args__ = (
+        CheckConstraint(
+            STATUS.in_(['PENDING', 'IN_PROGRESS', 'DONE']),
+            name='ck_action_item_status'
+        ),
+        CheckConstraint(
+            PRIORITY.in_(['LOW', 'MEDIUM', 'HIGH']),
+            name='ck_action_item_priority'
+        ),
+    )
+
+    # === 관계 설정 ===
+    meeting = relationship(
+        "Meeting",
+        back_populates="action_items",
+    )
+    assignee = relationship(
+        "User",
+        back_populates="action_items",
+    )
 
 # 7. 회의 챗봇 로그
 class ChatbotLog(Base):
