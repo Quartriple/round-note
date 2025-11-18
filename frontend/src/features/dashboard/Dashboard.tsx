@@ -317,7 +317,7 @@ export default function Dashboard() {
                     <div>
                       <h3 className="mb-1">연동 플랫폼 설정</h3>
                       <p className="text-muted-foreground text-sm">
-                        Notion, Slack 등 플랫폼 연동 계정 설정
+                        Notion, Jira 등 플랫폼 연동 계정 설정
                       </p>
                     </div>
                   </div>
