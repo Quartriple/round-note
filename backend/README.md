@@ -613,6 +613,7 @@ logger.error("LLM 요약 오류: %s", str(e))
   - [ ] GET /meetings (더미 리스트 반환)
   - [ ] POST /meetings (더미 생성)
   - [ ] GET /meetings/{id} (더미 조회)
+  - [ ] **PUT /meetings/{id} (회의 종료 시 Pass 2 작업 RQ에 등록)
 
 ---
 
@@ -641,7 +642,7 @@ logger.error("LLM 요약 오류: %s", str(e))
 
 **Phase 2C (1-2일) - Phase 2A 완료 후**
 
-- [ ] **DB 마이그레이션 & 모델 확확정**
+- [ ] **DB 마이그레이션 & 모델 확정**
   - [ ] `models.py` - User, Meeting, Summary, ActionItem, Embedding 모델
   - [ ] `alembic/` - 마이그레이션 생성 및 테스트
 
