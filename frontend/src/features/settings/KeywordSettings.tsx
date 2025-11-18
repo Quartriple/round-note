@@ -91,7 +91,7 @@ export function KeywordSettings({ onBack }: KeywordSettingsProps) {
   };
 
   return (
-    <div className="bg-white rounded-2xl p-8 shadow-sm border border-border">
+    <div className="bg-white rounded-2xl p-8 shadow-sm border border-border w-[1100px] max-w-[1100px] mx-auto">
       {/* 헤더 */}
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-4">

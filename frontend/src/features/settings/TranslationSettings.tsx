@@ -46,7 +46,7 @@ export function TranslationSettings({ onBack }: TranslationSettingsProps) {
   };
 
   return (
-    <div className="bg-white rounded-2xl p-8 shadow-sm border border-border">
+    <div className="bg-white rounded-2xl p-8 shadow-sm border border-border w-[1100px] max-w-[1100px] mx-auto">
       <div className="mb-6 flex items-center gap-4">
         <Button
           onClick={onBack}
