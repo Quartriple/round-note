@@ -193,7 +193,7 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
   };
 
   return (
-    <div className="bg-white rounded-2xl p-8 shadow-sm border border-border w-full max-w-3xl">
+    <div className="bg-white rounded-2xl p-8 shadow-sm border border-border w-[1100PX]  max-w-[1100px] mx-auto">
       <div className="mb-6">
         <h2 className="text-foreground mb-2">회의 정보 입력</h2>
         <p className="text-sm text-muted-foreground">

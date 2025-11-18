@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/card';
 import { Button } from '@/shared/ui/button';
+import { ArrowLeft} from "lucide-react";
 import { Input } from '@/shared/ui/input';
 import { Textarea } from '@/shared/ui/textarea';
 import { Badge } from '@/shared/ui/badge';
@@ -29,6 +30,11 @@ interface TemplateSection {
   title: string;
   placeholder: string;
 }
+
+interface TemplateSettingsProps {
+  onBack: () => void;
+}
+
 
 const DEFAULT_TEMPLATES: Template[] = [
   {
@@ -110,7 +116,7 @@ const DEFAULT_TEMPLATES: Template[] = [
 
 const STORAGE_KEY = 'meeting-templates';
 
-export function TemplateSettings() {
+export function TemplateSettings({ onBack }: TemplateSettingsProps) {
   const [templates, setTemplates] = useState<Template[]>(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
@@ -125,6 +131,7 @@ export function TemplateSettings() {
     }
     return DEFAULT_TEMPLATES;
   });
+  
 
   const [selectedTemplate, setSelectedTemplate] = useState<Template>(templates[0]);
   const [isEditing, setIsEditing] = useState(false);
@@ -250,11 +257,20 @@ export function TemplateSettings() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Button
+            onClick={onBack}
+            variant="ghost"
+            size="icon"
+            className="hover:bg-muted">
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
         <div>
           <h2 className="text-primary">템플릿 보기</h2>
           <p className="text-sm text-muted-foreground mt-1">
             템플릿 지정 및 수정, 삭제가 가능합니다
           </p>
+          </div>
         </div>
       </div>
 

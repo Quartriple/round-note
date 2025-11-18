@@ -9,6 +9,7 @@ import { MeetingDetail } from '@/features/meetings/MeetingDetail';
 import { ScrollToTop } from '@/features/utils/ScrollToTop';
 import type { Meeting } from '@/features/dashboard/Dashboard';
 
+
 interface MeetingListViewProps {
   meetings: Meeting[];
   onUpdateMeeting: (meeting: Meeting) => void;
@@ -95,11 +96,11 @@ export function MeetingListView({ meetings, onUpdateMeeting, onDeleteMeeting }: 
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* Search and Filter Section */}
       <Card className="bg-primary/5 border-primary/20">
         <CardContent className="pt-6">
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 items-center">
             <div className="md:col-span-1">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />

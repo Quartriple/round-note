@@ -595,7 +595,7 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
               </div>
 
               {/* 전사 내용 표시 영역 - 고정 높이 + 스크롤 */}
-              <div className="h-[400px] overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50">
+              <div className="h-[400px] w-[1000px] overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50">
                 {content || interimText ? (
                   <div className="space-y-2">
                     <div className="whitespace-pre-wrap text-slate-700 text-sm md:text-base leading-relaxed">
@@ -666,41 +666,10 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
                     </>
                   )}
                 </Button>
-                <Button
-                  onClick={() => {
-                    const sampleText = `안녕하세요. 오늘 회의를 시작하겠습니다.
-
-먼저 지난주 진행 상황에 대해 공유드리겠습니다. 마케팅팀에서 준비한 신규 캠페인 기획안이 완료되었고, 개발팀에서는 모바일 앱 베타 버전이 80% 정도 진행되었습니다.
-
-다음으로 이번 주 주요 안건에 대해 논의하겠습니다.
-
-첫 번째, 신제품 출시 일정에 대해 논의가 필요합니다. 개발 일정을 고려했을 때 다음 달 15일 출시가 적절해 보입니다. 김철수님께서 제품 QA를 담당해주시고, 이영희님께서는 마케팅 자료를 준비해주시기 바랍니다.
-
-두 번째, 예산 배분 건입니다. 광고비를 기존 500만원에서 700만원으로 증액하는 것이 좋겠다는 의견이 있었습니다. 이 부분은 다음 주까지 검토 후 최종 결정하기로 했습니다.
-
-세 번째, 고객 피드백 개선 방안입니다. 최근 고객 만족도 조사 결과 UI/UX 개선이 필요하다는 의견이 많았습니다. 디자인팀에서 다음 주까지 개선안을 제출하기로 했습니다.
-
-마지막으로 액션 아이템을 정리하겠습니다.
-- 김철수님: 제품 QA 진행, 마감일은 이번 주 금요일
-- 이영희님: 마케팅 자료 준비, 마감일은 다음 주 월요일  
-- 박민수님: 예산안 검토 및 보고서 작성, 마감일은 다음 주 수요일
-- 정수진님: UI/UX 개선안 제출, 마감일은 다음 주 금요일
-
-오늘 회의는 여기까지입니다. 수고하셨습니다.`;
-                    setContent(prev => prev + sampleText);
-                    toast.success('샘플 텍스트가 추가되었습니다.');
-                  }}
-                  variant="outline"
-                  size="lg"
-                  className="gap-2 whitespace-nowrap"
-                >
-                  <Edit3 className="w-5 h-5" />
-                  샘플 추가
-                </Button>
               </div>
 
               {/* 요약 내용 표시 영역 - 고정 높이 + 스크롤 */}
-              <div className="h-[400px] overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50">
+              <div className="h-[400px] w-[1000px] overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50">
                 {realtimeSummary ? (
                   <div className="space-y-3">
                     <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200">

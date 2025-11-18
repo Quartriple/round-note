@@ -186,15 +186,6 @@ export function Login({ onLogin, onShowRegister }: LoginProps) {
 
           <Separator />
 
-          {/* 게스트로 계속하기 */}
-          <Button
-            onClick={onLogin}
-            variant="outline"
-            className="w-full h-11"
-          >
-            게스트로 계속하기
-          </Button>
-
           <p className="text-xs text-center text-muted-foreground mt-4">
             로그인하면 RoundNote의{' '}
             <a href="#" className="text-primary hover:underline">
