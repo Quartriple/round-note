@@ -151,14 +151,35 @@ docker-compose ps
 
 ```bash
 # PostgreSQL 접속
-docker exec -it roundnote-postgres psql -U roundnote -d roundnote
+docker exec -it roundnote_db psql -U roundnote_user -d roundnote_db
 
 # Redis CLI
-docker exec -it roundnote-redis redis-cli
+docker exec -it roundnote_redis redis-cli
 
 # Backend 로그 확인
-docker logs -f roundnote-backend
+docker logs -f roundnote_backend
 ```
+
+### 7. NCP Compute 배포
+
+**배포 환경 변경**: Backend, PostgreSQL, Redis 모두 **NCP Compute로 이전**
+
+**장점:**
+- 모든 서비스가 같은 VPC 내부 (안전 & 빠름)
+- NCP Object Storage (VPC 전용) 직접 접근
+- `docker-compose.yml` 동일하게 사용
+- Frontend는 Render에서 호스팅
+
+**배포 단계:**
+1. NCP Compute 생성 (Ubuntu 20.04, 2vCPU, 4GB RAM)
+2. Docker & Docker Compose 설치
+3. 코드 클론: `git clone <repo>`
+4. 환경변수 설정: `backend/.env`
+5. 실행: `docker-compose up -d`
+6. NCP 보안그룹: SSH(22), Backend(8000) 오픈
+7. Render 환경변수: `REACT_APP_API_URL=http://<NCP-IP>:8000`
+
+자세한 내용은 [`README.md`](../README.md)의 **"NCP Compute 배포"** 섹션 참고
 
 ---
 
@@ -613,6 +634,7 @@ logger.error("LLM 요약 오류: %s", str(e))
   - [ ] GET /meetings (더미 리스트 반환)
   - [ ] POST /meetings (더미 생성)
   - [ ] GET /meetings/{id} (더미 조회)
+  - [ ] **PUT /meetings/{id} (회의 종료 시 Pass 2 작업 RQ에 등록)
 
 ---
 
@@ -641,7 +663,7 @@ logger.error("LLM 요약 오류: %s", str(e))
 
 **Phase 2C (1-2일) - Phase 2A 완료 후**
 
-- [ ] **DB 마이그레이션 & 모델 확확정**
+- [ ] **DB 마이그레이션 & 모델 확정**
   - [ ] `models.py` - User, Meeting, Summary, ActionItem, Embedding 모델
   - [ ] `alembic/` - 마이그레이션 생성 및 테스트
 
