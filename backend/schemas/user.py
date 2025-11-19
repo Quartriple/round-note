@@ -12,11 +12,14 @@ class Token(BaseModel):
     token_type: str = "bearer"
 
 class UserOut(BaseModel):
-    id: int
+    id: str  # ULID
     email: str
     name: str
 
     class Config:
         from_attributes = True
 
-# TODO: (팀원 A) OAuth2PasswordRequestForm에 대응하는 스키마 필요 시 추가
+# 로그인 폼용 스키마 (FastAPI OAuth2PasswordRequestForm 대체)
+class UserLogin(BaseModel):
+    email: str
+    password: str
