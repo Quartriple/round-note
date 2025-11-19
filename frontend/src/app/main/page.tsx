@@ -17,7 +17,7 @@ export default function MainPage() {
 
   return (
     <div>
-      <div style={{ padding: "10px", backgroundColor: "#1e1e1e", borderBottom: "1px solid #444", textAlign: "center" }}>
+      {/* <div style={{ padding: "10px", backgroundColor: "#1e1e1e", borderBottom: "1px solid #444", textAlign: "center" }}>
         <Link
           href="/api-test"
           style={{
@@ -32,7 +32,7 @@ export default function MainPage() {
         >
           🚀 VAD 기능 테스트 페이지 (백엔드 테스트용)
         </Link>
-      </div>
+      </div> */}
       <Dashboard />
     </div>
   );
