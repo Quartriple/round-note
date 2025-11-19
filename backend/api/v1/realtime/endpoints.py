@@ -20,6 +20,7 @@ class TranscribeSettings:
     def __init__(self, translate: bool = False, summary: bool = False):
         self.translate = translate
         self.summary = summary
+        self.is_paused = False  # 일시정지 상태 추가
         
 # 메인 WebSocket 핸들러
 @router.websocket("/ws")
@@ -124,11 +125,14 @@ async def handle_client_uplink(
                 if len(audio_data) > 0:
                     await dg_ws.send(audio_data)
                     
-                    try:
-                        await stoage_service.write_audio_chunk(wave_file, audio_data)
-                        
-                    except Exception as e:
-                        logging.warning(f"⚠️ 오디오 청크 로컬 쓰기 실패: {str(e)}")
+                    # 일시정지 상태가 아닐 때만 파일에 저장
+                    if not settings.is_paused:
+                        try:
+                            await stoage_service.write_audio_chunk(wave_file, audio_data)
+                        except Exception as e:
+                            logging.warning(f"⚠️ 오디오 청크 로컬 쓰기 실패: {str(e)}")
+                    else:
+                        logging.debug("일시정지 중이므로 파일 저장 스킵")
                 else:
                     logging.debug("UPLINK RECEIVED: 0 bytes. Skipping forward.")
 
@@ -144,6 +148,12 @@ async def handle_client_uplink(
                         logging.info(f"--> [CONTROL] 번역 기능 상태 변경: {value}")
                         # 클라이언트에게 설정이 바뀌었음을 알리는 피드백 (선택적)
                         await client_ws.send_json({"type": "setting_update", "translate": value})
+                    
+                    elif command == "SET_PAUSED" and isinstance(value, bool):
+                        settings.is_paused = value # 일시정지 상태 업데이트
+                        logging.info(f"--> [CONTROL] 일시정지 상태 변경: {value} ({'일시정지' if value else '재개'})")
+                        # 클라이언트에게 설정이 바뀌었음을 알리는 피드백 (선택적)
+                        await client_ws.send_json({"type": "setting_update", "paused": value})
                     # (추후 "SET_SUMMARY" 등 다른 명령어도 여기서 처리)
                         
                 except json.JSONDecodeError:

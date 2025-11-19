@@ -4,6 +4,7 @@ import { Input } from '@/shared/ui/input';
 import { Alert, AlertDescription } from '@/shared/ui/alert';
 import { Badge } from '@/shared/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/ui/card';
+import useRealtimeStream from '@/hooks/useRealtimeStream';
 import { 
   Mic, 
   MicOff, 
@@ -47,10 +48,23 @@ interface MeetingContentInputProps {
 }
 
 export function MeetingContentInput({ meetingInfo, onComplete, onBack }: MeetingContentInputProps) {
+  // useRealtimeStream hook 사용
+  const {
+    isRecording,
+    isPaused,
+    transcript,
+    partialText,
+    translation,
+    startRecording,
+    stopRecording,
+    pauseRecording,
+    resumeRecording,
+    vadLoading,
+  } = useRealtimeStream();
+
   const [content, setContent] = useState('');
   const [editableTitle, setEditableTitle] = useState(meetingInfo.title || '');
   const [meetingDate, setMeetingDate] = useState(meetingInfo.date || new Date().toISOString().split('T')[0]);
-  const [isRecording, setIsRecording] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(true);
   const [micPermissionDenied, setMicPermissionDenied] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -60,11 +74,9 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
   const [recordingTime, setRecordingTime] = useState(0);
   const [inputLanguage, setInputLanguage] = useState('ko-KR');
   const [outputLanguage, setOutputLanguage] = useState('ko-KR');
-  const [interimText, setInterimText] = useState('');
   const [realtimeSummary, setRealtimeSummary] = useState('');
   const [activeTab, setActiveTab] = useState<'transcribe' | 'summary'>('transcribe');
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
-  const recognitionRef = useRef<any>(null);
   const contentEndRef = useRef<HTMLDivElement>(null);
   const summaryEndRef = useRef<HTMLDivElement>(null);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -92,70 +104,15 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
     }
   }, []);
 
+  // transcript가 업데이트되면 content에 반영
   useEffect(() => {
-    // Check for speech recognition support
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    
-    if (!SpeechRecognition) {
-      setSpeechSupported(false);
-      return;
+    if (transcript) {
+      setContent(transcript);
+      setTimeout(() => {
+        contentEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
     }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = inputLanguage;
-
-    recognition.onresult = (event: any) => {
-      let interimTranscript = '';
-      let finalTranscript = '';
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscript += transcript + ' ';
-        } else {
-          interimTranscript += transcript;
-        }
-      }
-
-      if (finalTranscript) {
-        setContent(prev => prev + finalTranscript);
-        setInterimText('');
-        setTimeout(() => {
-          contentEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-        }, 100);
-      } else if (interimTranscript) {
-        setInterimText(interimTranscript);
-      }
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error('Speech recognition error:', event.error);
-      if (event.error === 'no-speech') {
-        return;
-      }
-      if (event.error === 'not-allowed') {
-        setMicPermissionDenied(true);
-        setSpeechSupported(false);
-      }
-      setIsRecording(false);
-    };
-
-    recognition.onend = () => {
-      if (isRecording) {
-        recognition.start();
-      }
-    };
-
-    recognitionRef.current = recognition;
-
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-    };
-  }, [isRecording, inputLanguage]);
+  }, [transcript]);
 
   useEffect(() => {
     if (isRecording) {
@@ -303,27 +260,18 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
   };
 
   const toggleRecording = async () => {
-    if (!recognitionRef.current) return;
-
     if (isRecording) {
-      recognitionRef.current.stop();
+      stopRecording();
       stopAudioRecording();
-      setIsRecording(false);
-      setInterimText('');
       toast.success('녹음이 중지되었습니다.');
     } else {
       try {
-        await navigator.mediaDevices.getUserMedia({ audio: true });
-        setMicPermissionDenied(false);
-        recognitionRef.current.start();
+        await startRecording();
         startAudioRecording();
-        setIsRecording(true);
         setRecordingTime(0);
         toast.success('녹음이 시작되었습니다.');
       } catch (error) {
-        if (error instanceof Error && error.name !== 'NotAllowedError') {
-          console.error('Microphone error:', error);
-        }
+        console.error('Recording error:', error);
         setMicPermissionDenied(true);
         setSpeechSupported(false);
         toast.error('마이크 권한이 필요합니다.');
@@ -384,8 +332,7 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
     }
 
     if (isRecording) {
-      recognitionRef.current.stop();
-      setIsRecording(false);
+      stopRecording();
     }
 
     setIsProcessing(true);
@@ -504,9 +451,9 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
               <span className="font-mono">{formatTime(recordingTime)}</span>
             </div>
             {isRecording && (
-              <Badge className="bg-red-500 hover:bg-red-600 text-white animate-pulse">
+              <Badge className={`${isPaused ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-red-500 hover:bg-red-600'} text-white ${!isPaused && 'animate-pulse'}`}>
                 <span className="w-2 h-2 bg-white rounded-full mr-1.5"></span>
-                REC
+                {isPaused ? 'PAUSED' : 'REC'}
               </Badge>
             )}
           </div>
@@ -568,16 +515,16 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
           {/* 실시간 전사 탭 */}
           {activeTab === 'transcribe' && (
             <div>
-              {/* 녹취 시작 버튼 */}
-              <div className="mb-4 flex justify-center">
+              {/* 녹취 컨트롤 버튼 */}
+              <div className="mb-4 flex gap-2 justify-center">
                 <Button
                   onClick={toggleRecording}
-                  disabled={!speechSupported}
+                  disabled={!speechSupported || vadLoading}
                   size="lg"
-                  className={`w-full max-w-md gap-2 ${
+                  className={`flex-1 max-w-md gap-2 ${
                     isRecording 
                       ? 'bg-red-500 hover:bg-red-600' 
-                      : 'bg-red-500 hover:bg-red-600'
+                      : 'bg-primary hover:bg-primary/90'
                   } ${!speechSupported ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   {isRecording ? (
@@ -592,16 +539,37 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
                     </>
                   )}
                 </Button>
+                
+                {isRecording && (
+                  <Button
+                    onClick={isPaused ? resumeRecording : pauseRecording}
+                    size="lg"
+                    variant="outline"
+                    className="gap-2 w-32"
+                  >
+                    {isPaused ? (
+                      <>
+                        <PlayCircle className="w-5 h-5" />
+                        재개
+                      </>
+                    ) : (
+                      <>
+                        <PauseCircle className="w-5 h-5" />
+                        일시정지
+                      </>
+                    )}
+                  </Button>
+                )}
               </div>
 
               {/* 전사 내용 표시 영역 - 고정 높이 + 스크롤 */}
               <div className="h-[400px] w-[1000px] overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50">
-                {content || interimText ? (
+                {content || partialText ? (
                   <div className="space-y-2">
                     <div className="whitespace-pre-wrap text-slate-700 text-sm md:text-base leading-relaxed">
                       {content}
-                      {interimText && (
-                        <span className="text-slate-400 italic">{interimText}</span>
+                      {partialText && (
+                        <span className="text-slate-400 italic"> {partialText}</span>
                       )}
                       <div ref={contentEndRef} />
                     </div>
@@ -642,16 +610,16 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
           {/* 실시간 전사 요약 탭 */}
           {activeTab === 'summary' && (
             <div>
-              {/* 녹취 시작 버튼 */}
+              {/* 녹취 컨트롤 버튼 */}
               <div className="mb-4 flex gap-2 justify-center">
                 <Button
                   onClick={toggleRecording}
-                  disabled={!speechSupported}
+                  disabled={!speechSupported || vadLoading}
                   size="lg"
                   className={`flex-1 max-w-md gap-2 ${
                     isRecording 
                       ? 'bg-red-500 hover:bg-red-600' 
-                      : 'bg-red-500 hover:bg-red-600'
+                      : 'bg-primary hover:bg-primary/90'
                   } ${!speechSupported ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   {isRecording ? (
@@ -666,6 +634,27 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
                     </>
                   )}
                 </Button>
+                
+                {isRecording && (
+                  <Button
+                    onClick={isPaused ? resumeRecording : pauseRecording}
+                    size="lg"
+                    variant="outline"
+                    className="gap-2 w-32"
+                  >
+                    {isPaused ? (
+                      <>
+                        <PlayCircle className="w-5 h-5" />
+                        재개
+                      </>
+                    ) : (
+                      <>
+                        <PauseCircle className="w-5 h-5" />
+                        일시정지
+                      </>
+                    )}
+                  </Button>
+                )}
               </div>
 
               {/* 요약 내용 표시 영역 - 고정 높이 + 스크롤 */}
