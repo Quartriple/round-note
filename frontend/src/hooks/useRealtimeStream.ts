@@ -50,13 +50,64 @@ const useRealtimeStream = (): RealtimeStreamControls => {
     const isRecordingRef = useRef<boolean>(false); // 최신 isRecording 상태를 추적
     const isPausedRef = useRef<boolean>(false); // 최신 isPaused 상태를 추적
     const silenceIntervalRef = useRef<NodeJS.Timeout | null>(null); // 침묵 오디오 전송 인터벌
+    const mediaStreamRef = useRef<MediaStream | null>(null); // 마이크 스트림 참조
+
+    // 마이크 스트림을 직접 관리하여 추후 cleanup 시 트랙을 명확히 종료
+    const getOrCreateMediaStream = useCallback(async (): Promise<MediaStream> => {
+        if (mediaStreamRef.current) {
+            const hasLiveTrack = mediaStreamRef.current.getTracks().some(track => track.readyState === 'live');
+            if (hasLiveTrack) {
+                return mediaStreamRef.current;
+            }
+        }
+
+        if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+            throw new Error('Audio capture is not supported in this environment');
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                channelCount: AUDIO_CONFIG.channel,
+                sampleRate: AUDIO_CONFIG.sampleRate,
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+            },
+        });
+
+        mediaStreamRef.current = stream;
+        return stream;
+    }, []);
+
+    const pauseMediaStream = useCallback(async (stream: MediaStream) => {
+        stream.getAudioTracks().forEach(track => {
+            track.enabled = false;
+        });
+    }, []);
+
+    const resumeMediaStream = useCallback(async (stream: MediaStream): Promise<MediaStream> => {
+        const liveTrackExists = stream.getAudioTracks().some(track => track.readyState === 'live');
+        if (!liveTrackExists) {
+            mediaStreamRef.current = null;
+            return getOrCreateMediaStream();
+        }
+
+        stream.getAudioTracks().forEach(track => {
+            track.enabled = true;
+        });
+        mediaStreamRef.current = stream;
+        return stream;
+    }, [getOrCreateMediaStream]);
 
     // VAD 설정 - pause/listening 확인
-    const { loading: vadLoading, start: vadStart, pause: vadPause } = useMicVAD({
+    const { loading: vadLoading, start: vadStart, pause: vadPause, userSpeaking, listening } = useMicVAD({
         model: "v5",
         inputSampleRate: AUDIO_CONFIG.sampleRate,
         baseAssetPath: '/',
         onnxWASMBasePath: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/',
+        getStream: getOrCreateMediaStream,
+        pauseStream: pauseMediaStream,
+        resumeStream: resumeMediaStream,
         onFrameProcessed: (probs: any, frame: Float32Array) => {
             const isSpeech = probs.isSpeech > 0.6;
             const int16Frame = float32ToInt16(frame);
@@ -142,9 +193,22 @@ const useRealtimeStream = (): RealtimeStreamControls => {
         // VAD 중지 - pause 메서드 사용
         try {
             vadPause();
-            console.log("VAD 중지됨");
+            console.log("VAD pause 호출됨");
         } catch (e) {
             console.error("VAD 중지 오류:", e);
+        }
+        
+        // 마이크 스트림 ref에 저장된 것이 있다면 중지
+        if (mediaStreamRef.current) {
+            try {
+                mediaStreamRef.current.getTracks().forEach(track => {
+                    track.stop();
+                    console.log("저장된 마이크 트랙 중지:", track.label);
+                });
+                mediaStreamRef.current = null;
+            } catch (e) {
+                console.error("저장된 마이크 스트림 중지 오류:", e);
+            }
         }
         
         // WebSocket 연결 닫기
@@ -279,7 +343,7 @@ const useRealtimeStream = (): RealtimeStreamControls => {
                 console.error("WebSocket 실행 중 오류:", error);
             };
 
-            // VAD 시작 - start 메서드 사용
+            // VAD 시작 - start 메서드 사용 (VAD가 내부적으로 마이크 스트림 관리)
             if (typeof vadStart === 'function') {
                 vadStart();
                 console.log("VAD 시작됨");
@@ -363,7 +427,34 @@ const useRealtimeStream = (): RealtimeStreamControls => {
     // 컴포넌트 언마운트 시 정리
     useEffect(() => {
         return () => {
-            console.log("컴포넌트 언마운트 - 리소스 정리");
+            console.log("컴포넌트 언마운트 - 리소스 정리 시작");
+            
+            // 침묵 인터벌 정리
+            if (silenceIntervalRef.current) {
+                clearInterval(silenceIntervalRef.current);
+                silenceIntervalRef.current = null;
+            }
+            
+            // VAD 강제 중지
+            try {
+                if (vadPause) {
+                    vadPause();
+                    console.log("언마운트 시 VAD pause 호출");
+                }
+            } catch (e) {
+                console.error("언마운트 시 VAD pause 오류:", e);
+            }
+            
+            // 마이크 스트림 정리
+            if (mediaStreamRef.current) {
+                mediaStreamRef.current.getTracks().forEach(track => {
+                    track.stop();
+                    console.log("언마운트 시 마이크 트랙 중지:", track.label);
+                });
+                mediaStreamRef.current = null;
+            }
+            
+            // WebSocket 정리
             if (wsRef.current) {
                 const ws = wsRef.current;
                 ws.onmessage = null;
@@ -372,9 +463,12 @@ const useRealtimeStream = (): RealtimeStreamControls => {
                 if (ws.readyState === WebSocket.OPEN) {
                     ws.close();
                 }
+                wsRef.current = null;
             }
+            
+            console.log("컴포넌트 언마운트 - 리소스 정리 완료");
         };
-    }, []);
+    }, [vadPause]);
 
     return {
         isRecording: isRecording || vadLoading,
