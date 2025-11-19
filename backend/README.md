@@ -103,26 +103,38 @@ docker-compose up -d
 docker-compose ps
 ```
 
-### 3. 환경 변수 (간략 목록)
+### 3. 환경 변수
 
-아래 환경 변수를 `.env` 또는 Docker Compose 환경에 설정하세요:
+아래 환경 변수를 `.env` 파일에 설정하세요:
 
-- DATABASE_URL
-- REDIS_URL
-- OPENAI_API_KEY
-- DEEPGRAM_API_KEY
-- NCP_ENDPOINT_URL
-- NCP_ACCESS_KEY
-- NCP_SECRET_KEY
-- JIRA_BASE_URL
-- JIRA_API_TOKEN
-- JIRA_USER_EMAIL
-- JIRA_DEFAULT_PROJECT_KEY
-- NOTION_API_TOKEN
-- NOTION_PARENT_PAGE_ID
-- JWT_SECRET_KEY
-- JWT_ALGORITHM
-- CORS_ORIGIN
+**데이터베이스 & 캐시**
+- `DATABASE_URL` - PostgreSQL 연결 문자열
+- `REDIS_URL` - Redis 연결 문자열
+
+**외부 API 키**
+- `OPENAI_API_KEY` - OpenAI API 키 (LLM, 번역)
+- `DEEPGRAM_API_KEY` - Deepgram STT API 키 (실시간 음성인식)
+- `ELEVENLABS_API_KEY` - ElevenLabs API 키 (고품질 배치 전사)
+
+**NCP Object Storage**
+- `NCP_ENDPOINT_URL` - NCP Object Storage 엔드포인트
+- `NCP_BUCKET_NAME` - 버킷 이름
+- `NCP_ACCESS_KEY` - NCP Access Key
+- `NCP_SECRET_KEY` - NCP Secret Key
+
+**인증 & 보안**
+- `SECRET_KEY` - JWT 서명 키 (프로덕션 환경에서 반드시 변경)
+- `ALGORITHM` - JWT 알고리즘 (기본값: HS256)
+- `ACCESS_TOKEN_EXPIRE_MINUTES` - JWT 토큰 만료 시간 (분)
+
+**Google OAuth**
+- `GOOGLE_CLIENT_ID` - Google OAuth 클라이언트 ID
+- `GOOGLE_CLIENT_SECRET` - Google OAuth 클라이언트 Secret
+- `GOOGLE_REDIRECT_URI` - OAuth 콜백 URI
+
+**CORS 설정**
+- `CORS_ORIGIN_LOCAL` - 로컬 개발 환경 CORS
+- `CORS_ORIGIN` - 배포 환경 CORS
 
 ### 4. 데이터베이스 마이그레이션
 
@@ -1067,14 +1079,23 @@ git merge feat/jeong-llm-storage
 
 | 변수 | 설명 | 예시 |
 |:---|:---|:---|
-| `DATABASE_URL` | PostgreSQL 연결 문자열 (Docker) | `postgresql://roundnote:password@postgres:5432/roundnote` |
-| `REDIS_URL` | Redis 연결 문자열 (Docker) | `redis://redis:6379/0` |
-| `OPENAI_API_KEY` | OpenAI API 키 | `sk-...` |
-| `DEEPGRAM_API_KEY` | Deepgram STT API 키 | `...` |
-| `NCP_ENDPOINT_URL` | NCP Object Storage 엔드포인트 | `https://...` |
-| `JWT_SECRET_KEY` | JWT 서명 키 | `your-secret-key` |
-| `JWT_ALGORITHM` | JWT 알고리즘 | `HS256` |
-| `CORS_ORIGIN` | CORS 허용 도메인 | `https://roundnote.com` |
+| `DATABASE_URL` | PostgreSQL 연결 문자열 (Docker) | `postgresql://roundnote_user:roundnote_password@db:5432/roundnote_db` |
+| `REDIS_URL` | Redis 연결 문자열 (Docker) | `redis://redis:6379` |
+| `OPENAI_API_KEY` | OpenAI API 키 (LLM, 번역) | `sk-...` |
+| `DEEPGRAM_API_KEY` | Deepgram STT API 키 (실시간) | `d6ea7b94...` |
+| `ELEVENLABS_API_KEY` | ElevenLabs API 키 (배치 전사) | `ea1a8b13...` |
+| `NCP_ENDPOINT_URL` | NCP Object Storage 엔드포인트 | `https://kr.object.ncloudstorage.com` |
+| `NCP_BUCKET_NAME` | NCP 버킷 이름 | `roundnote-bucket` |
+| `NCP_ACCESS_KEY` | NCP Access Key | `ncp_iam_...` |
+| `NCP_SECRET_KEY` | NCP Secret Key | `ncp_iam_...` |
+| `SECRET_KEY` | JWT 서명 키 (프로덕션 필수 변경) | `roundnote-secret-key-please-change` |
+| `ALGORITHM` | JWT 알고리즘 | `HS256` |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | JWT 만료 시간 (분) | `30` |
+| `GOOGLE_CLIENT_ID` | Google OAuth 클라이언트 ID | `270793728126-...apps.googleusercontent.com` |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth 클라이언트 Secret | `GOCSPX-...` |
+| `GOOGLE_REDIRECT_URI` | OAuth 콜백 URI | `http://localhost:8000/api/v1/auth/google/callback` |
+| `CORS_ORIGIN_LOCAL` | 로컬 개발 CORS | `http://localhost:3000` |
+| `CORS_ORIGIN` | 배포 환경 CORS | `https://round-note-web.onrender.com` |
 
 ---
 
