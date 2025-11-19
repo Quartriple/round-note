@@ -1,12 +1,25 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.schemas import user as user_schema
 from backend.crud import user as user_crud
 from backend.core.auth import security
 from backend import models
+from authlib.integrations.starlette_client import OAuth
+import os
 
 router = APIRouter()
+
+# OAuth 설정
+oauth = OAuth()
+oauth.register(
+    name='google',
+    client_id=os.getenv('GOOGLE_CLIENT_ID'),
+    client_secret=os.getenv('GOOGLE_CLIENT_SECRET'),
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_kwargs={'scope': 'openid email profile'}
+)
 
 @router.post("/register", response_model=user_schema.Token)
 def register_user(user: user_schema.UserCreate, db: Session = Depends(get_db)):
@@ -62,6 +75,61 @@ def login_for_access_token(form_data: user_schema.UserLogin, db: Session = Depen
         "access_token": token,
         "token_type": "bearer"
     }
+
+@router.get("/google/login")
+async def google_login(request: Request):
+    """Google OAuth 로그인 시작 - Google 로그인 페이지로 리다이렉트"""
+    redirect_uri = os.getenv('GOOGLE_REDIRECT_URI', 'http://localhost:8000/api/v1/auth/google/callback')
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+@router.get("/google/callback")
+async def google_callback(request: Request, db: Session = Depends(get_db)):
+    """Google OAuth 콜백 처리 - 사용자 정보 받아서 JWT 발급"""
+    try:
+        # Google로부터 액세스 토큰 받기
+        token = await oauth.google.authorize_access_token(request)
+        
+        # 사용자 정보 가져오기
+        user_info = token.get('userinfo')
+        if not user_info:
+            raise HTTPException(status_code=400, detail="사용자 정보를 가져올 수 없습니다.")
+        
+        email = user_info.get('email')
+        name = user_info.get('name', email.split('@')[0])
+        
+        print(f"[DEBUG] Google 로그인 - Email: {email}, Name: {name}")
+        
+        # DB에서 사용자 조회
+        db_user = user_crud.get_user_by_email(db, email)
+        
+        if not db_user:
+            # 신규 사용자 생성 (Google OAuth는 비밀번호 없음)
+            print(f"[DEBUG] 신규 Google 사용자 생성")
+            import secrets
+            random_password = secrets.token_urlsafe(32)
+            db_user = models.User(
+                EMAIL=email,
+                PW=security.get_password_hash(random_password),  # 랜덤 비밀번호 해싱
+                NAME=name,
+                STATUS='A'
+            )
+            db.add(db_user)
+            db.commit()
+            db.refresh(db_user)
+            print(f"[DEBUG] 사용자 생성 완료 - USER_ID: {db_user.USER_ID}")
+        else:
+            print(f"[DEBUG] 기존 사용자 로그인 - USER_ID: {db_user.USER_ID}")
+        
+        # JWT 토큰 생성
+        access_token = security.create_access_token({"sub": db_user.USER_ID, "email": db_user.EMAIL})
+        
+        # 프론트엔드로 리다이렉트 (토큰을 쿼리 파라미터로 전달)
+        frontend_url = os.getenv('CORS_ORIGIN_LOCAL', 'http://localhost:3000')
+        return RedirectResponse(url=f"{frontend_url}/login?token={access_token}")
+        
+    except Exception as e:
+        print(f"[DEBUG] Google OAuth 오류: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Google 로그인 중 오류가 발생했습니다: {str(e)}")
 
 @router.get("/users/debug")
 def get_all_users_debug(db: Session = Depends(get_db)):
