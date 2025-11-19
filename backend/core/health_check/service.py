@@ -8,8 +8,11 @@ from redis import Redis
 import boto3
 from dotenv import load_dotenv
 from typing import Dict, Any
+import logging
+
 
 load_dotenv()
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] (%(name)s) %(message)s")
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 REDIS_URL = os.environ.get("REDIS_URL")
@@ -67,6 +70,7 @@ def run_full_health_check() -> Dict[str, Any]:
         results["storage"] = "ok"
     except Exception as e:
         results["storage"] = f"error: {str(e)[:50]}..."
+        logging.error(f"NCP Object Storage 연결 실패: {e}")
 
     if not all(v == "ok" for k, v in results.items() if k != "status"):
         results["status"] = "error" # Health Check 실패 시 상태 업데이트
