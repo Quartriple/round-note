@@ -4,6 +4,7 @@ from datetime import datetime
 from backend import models
 
 # [수정] 액션 아이템 생성
+# LLM이 뽑아준 액션 아이템을 저장할 때 쓰게 될 함수
 def create_action_item(
     db: Session,
     meeting_id: str,
@@ -37,6 +38,7 @@ def create_action_item(
     return item
 
 # [추가] 회의별 액션 아이템 조회
+# 특정 회의(MEETING_ID)에서 나온 모든 액션 아이템을 리스트로 반환
 def get_action_items_by_meeting(
     db: Session,
     meeting_id: str,
@@ -58,6 +60,7 @@ def get_action_items_by_meeting(
     )
 
 # [추가] 담당자 기준 액션 아잍메 조회
+# ASSIGNEE_ID가 특정 사용자(user_id)인 액션 아이템을 전부 가져옴
 def get_action_items_by_user(
     db: Session,
     user_id: str,
@@ -78,7 +81,8 @@ def get_action_items_by_user(
         .all()
     )
 
-# [추가] 엑션 아이템 업데이트
+# [추가] 엑션 아이템 업데이트(수정)
+# item_id로 객체를 찾고, 전달된 필드들만 선택적으로 업데이트
 def update_action_item(
     db: Session,
     item_id: str,
@@ -115,7 +119,8 @@ def update_action_item(
     db.refresh(item)
     return item
 
-# [추가] 액션 아이템 상태
+# [추가] 액션 아이템 상태 변경
+# 상태만 바꾸는 전용 함수 ex) PENDING -> IN_PROGRESS로 바꾸는 UI에 사용가능
 def update_action_item_status(
     db: Session,
     item_id: str,
@@ -129,6 +134,7 @@ def update_action_item_status(
     return update_action_item(db, item_id, status=status)
 
 # [추가] 액션 아이템 삭제
+# item_id로 레코드를 조회하고 없으면 False 반환/있으면 db.delete, db.commit 후 True 반환
 def delete_action_item(
     db: Session,
     item_id: str,
@@ -148,6 +154,7 @@ def delete_action_item(
     return True
 
 # [추가] 액션 아이템 조회
+# ITEM_ID 기준으로 액션 아이템 한 건을 가져옴
 def get_action_item_by_id(
     db: Session,
     item_id: str,

@@ -4,6 +4,7 @@ from backend.schemas import meeting as meeting_schema
 from typing import List, Optional
 
 # [수정] 회의 목록 조희
+# CREATOR_ID == user_id인 회의들 목록 조회용 함수
 def get_meetings_by_user(
     db: Session,
     user_id: str,
@@ -26,6 +27,7 @@ def get_meetings_by_user(
     )
 
 # [추가] 회의 상세 정보 조회
+# PK인 MEETING_ID로 회의 1건을 조회해서 반환/ 없으면 None
 def get_meeting(
     db: Session,
     meeting_id: str,
@@ -40,6 +42,7 @@ def get_meeting(
     )
 
 # [수정] 회의 생성
+# 새로운 Meeting 객체를 만들어서 DB에 저장하고, 그 객체를 반환
 def create_meeting(
     db: Session,
     meeting_in: meeting_schema.MeetingCreate,
@@ -68,6 +71,7 @@ def create_meeting(
     return db_meeting
 
 # [추가] 회의 정보 수정
+# 들어온 스키마에서 None이 아닌 필드만 골라서 기존 Meeting 객체에 반영
 def update_meeting(
     db: Session,
     meeting: models.Meeting,
@@ -94,6 +98,7 @@ def update_meeting(
     return meeting
 
 # [추가] 회의 종료
+# 회의의 END_DT를 세팅해서 끝났다는걸 기록
 def end_meeting(
     db: Session,
     meeting: models.Meeting,
@@ -123,6 +128,7 @@ def end_meeting(
     return meeting
 
 # [추가] 회의 삭제
+# 전달받은 Meeting 객체를 DB에서 삭제
 def delete_meeting(
     db: Session,
     meeting: models.Meeting,

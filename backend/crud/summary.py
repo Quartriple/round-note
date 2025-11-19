@@ -3,6 +3,7 @@ from typing import List, Optional
 from backend import models
 
 # [추가] 회의 요약 생성
+# 특정 회의(meeting_id)에 대한 새 요약 레코드를 하나 생성
 def create_summary(
     db: Session,
     meeting_id: str,
@@ -27,6 +28,7 @@ def create_summary(
     return summary
 
 # [추가] 회의 요약 조회
+# 특정 회의에 대한 요약들 중에서 가장 최신 것 하나만 가져옴
 def get_summary_by_meeting(
     db: Session,
     meeting_id: str,
@@ -45,6 +47,7 @@ def get_summary_by_meeting(
     )
 
 # [추가] 회의 요약 업데이트
+# 해당 회의의 가장 최신 요약이 있으면 그걸 수정, 없으면 새로 만들어쥬는 편의 함수
 def update_summary(
     db: Session,
     meeting_id: str,
@@ -78,6 +81,7 @@ def update_summary(
     return summary
 
 # [추가] 회의 요약 삭제
+# 특정 회의(meeting_id)에 연결된 모든 요약 레코드를 한 번에 삭제
 def delete_summary(
     db: Session,
     meeting_id: str,

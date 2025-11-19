@@ -18,7 +18,7 @@ def default_ulid():
 
 p_ulid = partial(default_ulid)
 
-# 1. 사용자 (USER는 SQL 예약어이므로 따옴표로 감쌉니다)
+# 1. 사용자(USER는 SQL 예약어이므로 따옴표로 감쌉니다) # 유저가 만든/할당된 객체들의 중심
 class User(Base):
     __tablename__ = '"USER"'
 
@@ -53,7 +53,7 @@ class User(Base):
     )
 
 
-# 2. 사용자설정
+# 2. 사용자설정 # 유저별 환경 설정을 따로 저장하는 테이블
 class UserSetting(Base):
     __tablename__ = "USER_SETTING"
 
@@ -67,7 +67,8 @@ class UserSetting(Base):
     )
 
 
-# 3. 회의
+# 3. 회의 # 관계 : 회의를 중심으로 모든 분석/로그가 매달림
+# 모든 자식 관계에 cascade="all, delete-orphan'이 달려있어, 회의 삭제 -> 연결된 요약/할 일/로그/분석/임베딩 다같이 삭제되는 구조
 class Meeting(Base):
     __tablename__ = "MEETING"
 
@@ -122,7 +123,7 @@ class Meeting(Base):
     )
 
 
-# 4. 전사 청크 (STT_CHUNK)
+# 4. 전사 청크 (STT_CHUNK) # 회의 음성 인식 결과를 시간 구간별로 쪼갠 텍스트 블록 저장
 class SttChunk(Base):
     __tablename__ = "STT_CHUNK"
 
@@ -149,7 +150,7 @@ class SttChunk(Base):
     # )
 
 
-# 5. 요약
+# 5. 요약 # 회의별로 생성되는 요약 텍스트 저장
 class Summary(Base):
     __tablename__ = "SUMMARY"
 
@@ -171,7 +172,7 @@ class Summary(Base):
     )
 
 
-# 6. 액션 아이템
+# 6. 액션 아이템 # 회의에서 나온 할 일/TO-DO를 관리하는 테이블
 class ActionItem(Base):
     __tablename__ = "ACTION_ITEM"
 
@@ -208,7 +209,7 @@ class ActionItem(Base):
     )
 
 
-# 7. 회의 챗봇 로그
+# 7. 회의 챗봇 로그 # 회의 중/후에 사용자가 챗봇에게 물어본 Q/A 저장
 class ChatbotLog(Base):
     __tablename__ = "CHATBOT_LOG"
 
@@ -226,7 +227,7 @@ class ChatbotLog(Base):
     user = relationship("User")
 
 
-# 8. 지식 소스
+# 8. 지식 소스 # 유저가 추가한 문서/파일 등의 지식 베이스 정보
 class KnowledgeSource(Base):
     __tablename__ = "KNOWLEDGE_SOURCE"
 
@@ -245,7 +246,7 @@ class KnowledgeSource(Base):
     )
 
 
-# 9. 최종 분석
+# 9. 최종 분석 # 요약/액션아이템을 기반으로 만든 최종 산출물
 class FinalAnalysis(Base):
     __tablename__ = "FINAL_ANALYSIS"
 
@@ -267,7 +268,7 @@ class FinalAnalysis(Base):
     )
 
 
-# 10. 키워드 부스팅 사전
+# 10. 키워드 부스팅 사전 # STT/LLM에서 강조해줄 사용자별 키워드 목록
 class KeywordBoostDict(Base):
     __tablename__ = "KEYWORD_BOOST_DICT"
 
@@ -277,7 +278,7 @@ class KeywordBoostDict(Base):
     CATEGORY = Column(TEXT, nullable=True)
 
 
-# 11. 파일/산출물 로그
+# 11. 파일/산출물 로그 # 회의에서 사용하는 각종 파일들의 로그
 class ArtifactLog(Base):
     __tablename__ = "ARTIFACT_LOG"
 
@@ -294,8 +295,7 @@ class ArtifactLog(Base):
         back_populates="artifact_logs",
     )
 
-
-# 12. 임베딩 (RAG 벡터)
+# 12. 임베딩 (RAG 벡터) # 회의에서 사용하는 RAG 임베딩을 따로 저장하는 테이블
 class Embedding(Base):
     __tablename__ = "EMBEDDING"
 
