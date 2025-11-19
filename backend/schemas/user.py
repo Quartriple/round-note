@@ -12,12 +12,13 @@ class Token(BaseModel):
     token_type: str = "bearer"
 
 class UserOut(BaseModel):
-    id: str  # ULID
-    email: str
-    name: str
+    user_id: str = Field(..., alias="USER_ID", description="사용자 ID (ULID)")
+    email: str = Field(..., alias="EMAIL", description="사용자 이메일")
+    name: str = Field(..., alias="NAME", description="사용자 이름")
 
     class Config:
         from_attributes = True
+        populate_by_name = True  # alias와 실제 필드명 둘 다 허용
 
 # 로그인 폼용 스키마 (FastAPI OAuth2PasswordRequestForm 대체)
 class UserLogin(BaseModel):
