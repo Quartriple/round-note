@@ -9,10 +9,10 @@ from redis import Redis
 import boto3
 from dotenv import load_dotenv
 
-from .api.v1.health_check.endpoints import router as health_router
-from .api.v1.auth.endpoints import router as auth_router
-from .api.v1.meetings.endpoints import router as meetings_router
-from .api.v1.realtime.endpoints import router as realtime_router
+from backend.api.v1.health_check.endpoints import router as health_router
+from backend.api.v1.auth.endpoints import router as auth_router
+from backend.api.v1.meetings.endpoints import router as meetings_router
+from backend.api.v1.realtime.endpoints import router as realtime_router
 
 
 load_dotenv()
