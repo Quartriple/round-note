@@ -59,7 +59,7 @@ class UserSetting(Base):
     __tablename__ = "USER_SETTING"
 
     SETTING_ID = Column(TEXT, primary_key=True, default=p_ulid)
-    USER_ID = Column(TEXT, ForeignKey('"USER".USER_ID'), nullable=False)
+    USER_ID = Column(TEXT, ForeignKey('RN_USER.USER_ID'), nullable=False)
     MEETING_TEMPLATE_ID = Column(TEXT, nullable=True)
     BOOST_USE_YN = Column(TEXT, nullable=False, default='N')
 
@@ -78,7 +78,7 @@ class Meeting(Base):
     PURPOSE = Column(TEXT, nullable=True)
     START_DT = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     END_DT = Column(TIMESTAMP(timezone=True), nullable=True)
-    CREATOR_ID = Column(TEXT, ForeignKey('"USER".USER_ID'), nullable=False)
+    CREATOR_ID = Column(TEXT, ForeignKey('RN_USER.USER_ID'), nullable=False)
     # NCP Object Key 저장용
     LOCATION = Column(TEXT, nullable=True)
 
@@ -187,7 +187,7 @@ class ActionItem(Base):
     STATUS = Column(TEXT, nullable=False)
     CREATED_DT = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     UPDATED_DT = Column(TIMESTAMP(timezone=True), nullable=True, onupdate=func.now())
-    ASSIGNEE_ID = Column(TEXT, ForeignKey('"USER".USER_ID'), nullable=True)
+    ASSIGNEE_ID = Column(TEXT, ForeignKey('RN_USER.USER_ID'), nullable=True)
 
     __table_args__ = (
         CheckConstraint(
@@ -216,7 +216,7 @@ class ChatbotLog(Base):
 
     LOG_ID = Column(TEXT, primary_key=True, default=p_ulid)
     MEETING_ID = Column(TEXT, ForeignKey("MEETING.MEETING_ID"), nullable=False)
-    USER_ID = Column(TEXT, ForeignKey('"USER".USER_ID'), nullable=False)
+    USER_ID = Column(TEXT, ForeignKey('RN_USER.USER_ID'), nullable=False)
     Q_TEXT = Column(TEXT, nullable=False)
     A_TEXT = Column(TEXT, nullable=True)
     ASKED_DT = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
@@ -233,7 +233,7 @@ class KnowledgeSource(Base):
     __tablename__ = "KNOWLEDGE_SOURCE"
 
     SRC_ID = Column(TEXT, primary_key=True, default=p_ulid)
-    OWNER_ID = Column(TEXT, ForeignKey('"USER".USER_ID'), nullable=False)
+    OWNER_ID = Column(TEXT, ForeignKey('RN_USER.USER_ID'), nullable=False)
     SRC_TYPE = Column(TEXT, nullable=False)
     TITLE = Column(TEXT, nullable=True)
     SRC_PATH = Column(TEXT, nullable=True)
@@ -274,7 +274,7 @@ class KeywordBoostDict(Base):
     __tablename__ = "KEYWORD_BOOST_DICT"
 
     KEY_ID = Column(TEXT, primary_key=True, default=p_ulid)
-    USER_ID = Column(TEXT, ForeignKey('"USER".USER_ID'), nullable=False)
+    USER_ID = Column(TEXT, ForeignKey('RN_USER.USER_ID'), nullable=False)
     KEYWORD = Column(TEXT, nullable=False)
     CATEGORY = Column(TEXT, nullable=True)
 
