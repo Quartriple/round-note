@@ -91,13 +91,22 @@ export function MeetingDetail({
   const [audioSrc, setAudioSrc] = useState('');
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
-  // Set audio src with token on mount
+  // Set audio src with token on mount and when audioUrl changes
   useEffect(() => {
-    if (meeting.audioUrl) {
+    if (meeting.audioUrl && meeting.audioUrl.trim() !== '') {
       const token = localStorage.getItem('access_token');
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
       const fullAudioUrl = `${apiUrl}/api/v1/meetings/${meeting.id}/audio?token=${token}`;
+      console.log('[MeetingDetail] Setting audio URL:', fullAudioUrl);
       setAudioSrc(fullAudioUrl);
+      
+      // 오디오 엘리먼트가 있으면 강제로 로드
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.load();
+      }
+    } else {
+      console.log('[MeetingDetail] No audio URL available:', meeting.audioUrl);
+      setAudioSrc('');
     }
   }, [meeting.id, meeting.audioUrl]);
 
@@ -726,7 +735,7 @@ export function MeetingDetail({
                         </div>
                         <audio
                           ref={audioPlayerRef}
-                          src={audioSrc}
+                          {...(audioSrc && { src: audioSrc })}
                           controls
                           className="w-full"
                           onError={(e) => console.error('[MeetingDetail] Audio load error:', e)}

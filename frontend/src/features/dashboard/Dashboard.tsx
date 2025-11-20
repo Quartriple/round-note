@@ -117,6 +117,8 @@ export default function Dashboard() {
   }, [meetings]);
 
   const handleAddMeeting = (meeting: Meeting) => {
+    console.log('[Dashboard] Adding meeting:', meeting);
+    console.log('[Dashboard] Meeting audioUrl:', meeting.audioUrl);
     setMeetings([meeting, ...meetings]);
     setActiveSection("history");
   };
