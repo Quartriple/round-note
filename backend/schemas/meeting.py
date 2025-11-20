@@ -26,26 +26,32 @@ class MeetingUpdate(MeetingBase):
     )
 
 # [수정] 회의 응답(조회)에 사용할 스키마
-# 백엔드에서 Meeting, ORM 객체를 조회한 뒤, 클라이언트에게 돌려줄 때의 응답 JSON 구조를 정의
+# 백엔드에서 Meeting ORM 객체를 조회한 뒤, 클라이언트에게 돌려줄 때의 응답 JSON 구조를 정의
 class MeetingOut(MeetingBase):
-    meeting_id: str = Field(..., description="ULID 기반 회의 ID (TEXT)")
-    creator_id: str = Field(..., description="회의 생성한 사용자 ID")
-    status: Optional[str] = Field(
+    MEETING_ID: str = Field(..., description="ULID 기반 회의 ID (TEXT)", alias="meeting_id")
+    CREATOR_ID: str = Field(..., description="회의 생성한 사용자 ID", alias="creator_id")
+    STATUS: Optional[str] = Field(
         None,
-        description="회의 상태 (예: ONGOING, COMPLETED 등)"
+        description="회의 상태 (예: ONGOING, COMPLETED 등)",
+        alias="status"
     )
-    start_dt: datetime = Field(..., description="회의 시작 시각")
-    end_dt: Optional[datetime] = Field(
+    START_DT: datetime = Field(..., description="회의 시작 시각", alias="start_dt")
+    END_DT: Optional[datetime] = Field(
         None,
-        description="회의 종료 시각 (아직 안 끝났으면 None)"
+        description="회의 종료 시각 (아직 안 끝났으면 None)",
+        alias="end_dt"
     )
-    location: Optional[str] = Field(
+    LOCATION: Optional[str] = Field(
         None,
-        description="회의 오디오 파일이 저장된 NCP Object Storage 경로"
+        description="회의 오디오 파일이 저장된 NCP Object Storage 경로",
+        alias="location"
     )
+    TITLE: Optional[str] = Field(None, description="회의 제목", alias="title")
+    PURPOSE: Optional[str] = Field(None, description="회의 목적", alias="purpose")
 
     class Config:
         from_attributes = True  # ORM 객체로부터 바로 변환 가능하도록 설정
+        populate_by_name = True  # alias와 원본 필드명 모두 허용
 
 # 회의 종료 처리 요청 바디
 # 회의가 끝날 때, 프론트가 회의 끝났다고 서버에 알리는 전용 요청 바디
