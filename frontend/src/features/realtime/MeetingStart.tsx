@@ -38,13 +38,52 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
       // 2. 생성된 회의 ID 저장
       setCreatedMeetingId(meetingData.meeting_id);
 
-      // 3. 회의 종료 처리 (END_DT 기록)
-      await endMeeting(meetingData.meeting_id, {
+      // 3. 오디오 파일이 있으면 업로드
+      if (aiAnalysis?.audioBlob) {
+        try {
+          const formData = new FormData();
+          formData.append('file', aiAnalysis.audioBlob, `${meetingData.meeting_id}.wav`);
+          
+          const token = localStorage.getItem('access_token');
+          const uploadResponse = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL}/api/v1/meetings/${meetingData.meeting_id}/audio`,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+              },
+              body: formData,
+            }
+          );
+          
+          if (!uploadResponse.ok) {
+            console.error('Audio upload failed:', await uploadResponse.text());
+            toast.warning('오디오 파일 업로드에 실패했습니다.');
+          } else {
+            const uploadResult = await uploadResponse.json();
+            console.log('[MeetingStart] Audio uploaded:', uploadResult);
+            toast.success('오디오 파일이 업로드되었습니다.');
+            
+            // 파일이 디스크에 완전히 쓰여질 때까지 잠시 대기
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        } catch (error) {
+          console.error('[MeetingStart] Audio upload error:', error);
+          toast.warning('오디오 파일 업로드 중 오류가 발생했습니다.');
+        }
+      }
+
+      // 4. 회의 종료 처리 (END_DT 기록 + 회의 원문 저장)
+      const endResult = await endMeeting(meetingData.meeting_id, {
         status: 'COMPLETED',
         ended_at: new Date().toISOString(),
+        content: transcribedContent,
+        audio_url: `./audio_storage/${meetingData.meeting_id}.wav`, // DB 레코드용 경로
       });
+      
+      console.log('[MeetingStart] Meeting ended:', endResult);
 
-      // 4. 로컬 state 업데이트를 위한 데이터 구성
+      // 5. 로컬 state 업데이트를 위한 데이터 구성
       // AI 분석 결과가 있으면 사용, 없으면 기본 패턴 매칭 사용
       const extractActionItems = (text: string) => {
       const lines = text.split('\n');
@@ -131,6 +170,34 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
       actionItems = extractActionItems(transcribedContent);
     }
 
+      // 5. 백엔드에서 최신 회의 데이터 가져오기 (오디오 URL 포함)
+      const token = localStorage.getItem('access_token');
+      let audioUrl = '';
+      
+      try {
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/api/v1/meetings/${meetingData.meeting_id}`,
+          {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          }
+        );
+        
+        if (response.ok) {
+          const meetingFromBackend = await response.json();
+          audioUrl = meetingFromBackend.audio_url || meetingFromBackend.location || `./audio_storage/${meetingData.meeting_id}.wav`;
+          console.log('[MeetingStart] Fetched audio URL from backend:', audioUrl);
+        } else {
+          console.warn('[MeetingStart] Failed to fetch meeting from backend');
+          audioUrl = `./audio_storage/${meetingData.meeting_id}.wav`;
+        }
+      } catch (error) {
+        console.error('[MeetingStart] Error fetching meeting:', error);
+        audioUrl = `./audio_storage/${meetingData.meeting_id}.wav`;
+      }
+      
       const now = new Date().toISOString();
       
       const newMeeting: Meeting = {
@@ -141,13 +208,14 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
         summary,
         actionItems,
         createdAt: meetingData.start_dt || now,
-        updatedAt: meetingData.end_dt || now,
+        updatedAt: endResult?.end_dt || now,
         participants: info.participants,
         keyDecisions: aiAnalysis?.keyDecisions || [],
         nextSteps: aiAnalysis?.nextSteps || [],
-        audioUrl: aiAnalysis?.audioUrl || ''
+        audioUrl: audioUrl // 백엔드에서 확인된 실제 경로 사용
       };
       
+      console.log('[MeetingStart] New meeting object:', newMeeting);
       onAddMeeting(newMeeting);
       toast.success('회의가 성공적으로 저장되었습니다!');
     } catch (error) {
