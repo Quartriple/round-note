@@ -18,7 +18,8 @@ class StorageService:
     """오디오 파일의 저장, 로드, 경로 관리를 담당합니다."""
 
     def __init__(self):
-        self.local_storage_path = "./audio_storage" # 로컬 임시 저장소 경로
+        # Docker 환경에서는 /app/audio_storage, 로컬에서는 ./audio_storage 사용
+        self.local_storage_path = "/app/audio_storage" if os.path.exists("/app/audio_storage") else "./audio_storage"
         
         self.ncp_endpoint_url = os.getenv("NCP_ENDPOINT_URL")
         self.ncp_access_key = os.getenv("NCP_ACCESS_KEY")

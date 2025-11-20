@@ -86,17 +86,17 @@ export default function Dashboard() {
           // 백엔드 응답을 프론트엔드 Meeting 타입으로 변환
           const mappedMeetings: Meeting[] = data.map((m: any) => ({
             id: m.meeting_id,
-            title: m.title,
+            title: m.title || '제목 없음',
             date: m.start_dt?.split('T')[0] || new Date().toISOString().split('T')[0],
-            content: '', // TODO: 백엔드에 content 필드 추가 필요
-            summary: m.purpose || '',
-            actionItems: [], // TODO: 백엔드에서 action items 가져오기
+            content: m.content || '',
+            summary: m.ai_summary || m.purpose || '',
+            actionItems: [],
             createdAt: m.start_dt || new Date().toISOString(),
             updatedAt: m.end_dt || new Date().toISOString(),
-            participants: [],
-            keyDecisions: [],
-            nextSteps: [],
-            audioUrl: ''
+            participants: m.participants || [],
+            keyDecisions: m.key_decisions || [],
+            nextSteps: m.next_steps || [],
+            audioUrl: m.audio_url || ''
           }));
           setMeetings(mappedMeetings);
         }

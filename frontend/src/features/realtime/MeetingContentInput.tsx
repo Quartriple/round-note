@@ -237,24 +237,21 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
     }
   };
 
-  // Finalize audio recording
-  const finalizeAudioRecording = (): Promise<string> => {
+  // Finalize audio recording - Blob 반환
+  const finalizeAudioRecording = (): Promise<Blob | null> => {
     return new Promise((resolve) => {
       if (audioRecordingRef.current && audioRecordingRef.current.state !== 'inactive') {
         audioRecordingRef.current.onstop = () => {
           if (audioChunksRef.current.length > 0) {
             const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-            const audioUrl = URL.createObjectURL(audioBlob);
-            resolve(audioUrl);
+            resolve(audioBlob);
           } else {
-            // No recording, use sample audio
-            resolve('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3');
+            resolve(null);
           }
         };
         audioRecordingRef.current.stop();
       } else {
-        // No recording, use sample audio
-        resolve('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3');
+        resolve(null);
       }
     });
   };
@@ -337,13 +334,13 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
 
     setIsProcessing(true);
     
-    // Finalize audio recording and get URL
-    const recordedAudioUrl = await finalizeAudioRecording();
+    // Finalize audio recording and get Blob
+    const recordedAudioBlob = await finalizeAudioRecording();
     
-    // Add audio URL to analysis
+    // Add audio Blob to analysis
     const analysisWithAudio = {
       ...aiAnalysis,
-      audioUrl: recordedAudioUrl
+      audioBlob: recordedAudioBlob // Blob을 전달
     };
     
     setTimeout(() => {

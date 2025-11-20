@@ -47,6 +47,8 @@ export interface UpdateMeetingRequest {
 export interface EndMeetingRequest {
   status?: string;
   ended_at?: string;
+  content?: string;
+  audio_url?: string;
 }
 
 /**

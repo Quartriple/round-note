@@ -117,11 +117,20 @@ def end_meeting(
     else:
         # DB에서 server_default를 쓸 수도 있고, 여기서 now()를 직접 넣을 수도 있음
         from sqlalchemy.sql import func
-
         meeting.END_DT = func.now()
 
-    # Meeting 모델에 STATUS 컬럼이 추가되면 아래와 같이 상태도 같이 변경할 수 있습니다.
+    # 상태 업데이트
     # meeting.STATUS = end_request.status
+
+    # 회의 원문/오디오 경로 저장
+    if getattr(end_request, "content", None) is not None:
+        meeting.CONTENT = end_request.content
+    if getattr(end_request, "audio_url", None) is not None:
+        audio_url = end_request.audio_url
+        meeting.AUDIO_URL = audio_url
+        # 로컬 파일 경로면 LOCATION에도 저장 (blob: URL이 아닌 경우)
+        if not audio_url.startswith('blob:'):
+            meeting.LOCATION = audio_url
 
     db.commit()
     db.refresh(meeting)
