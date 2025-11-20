@@ -26,17 +26,21 @@ function float32ToInt16(float32Array: Float32Array): Int16Array {
 
 interface RealtimeStreamControls {
     isRecording: boolean;
+    isPaused: boolean;
     transcript: string;
     partialText: string;
     translation: string;
     startRecording: () => Promise<void>;
     stopRecording: () => void;
+    pauseRecording: () => void;
+    resumeRecording: () => void;
     vadLoading: boolean;
 }
 
 const useRealtimeStream = (): RealtimeStreamControls => {
     // 1. 상태 정의
     const [isRecording, setIsRecording] = useState<boolean>(false);
+    const [isPaused, setIsPaused] = useState<boolean>(false);
     const [transcript, setTranscript] = useState<string>('');
     const [partialText, setPartialText] = useState<string>('');
     const [translation, setTranslation] = useState<string>('');
@@ -44,13 +48,66 @@ const useRealtimeStream = (): RealtimeStreamControls => {
     // 2. Mutable 객체 참조
     const wsRef = useRef<WebSocket | null>(null); 
     const isRecordingRef = useRef<boolean>(false); // 최신 isRecording 상태를 추적
+    const isPausedRef = useRef<boolean>(false); // 최신 isPaused 상태를 추적
+    const silenceIntervalRef = useRef<NodeJS.Timeout | null>(null); // 침묵 오디오 전송 인터벌
+    const mediaStreamRef = useRef<MediaStream | null>(null); // 마이크 스트림 참조
+
+    // 마이크 스트림을 직접 관리하여 추후 cleanup 시 트랙을 명확히 종료
+    const getOrCreateMediaStream = useCallback(async (): Promise<MediaStream> => {
+        if (mediaStreamRef.current) {
+            const hasLiveTrack = mediaStreamRef.current.getTracks().some(track => track.readyState === 'live');
+            if (hasLiveTrack) {
+                return mediaStreamRef.current;
+            }
+        }
+
+        if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+            throw new Error('Audio capture is not supported in this environment');
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                channelCount: AUDIO_CONFIG.channel,
+                sampleRate: AUDIO_CONFIG.sampleRate,
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+            },
+        });
+
+        mediaStreamRef.current = stream;
+        return stream;
+    }, []);
+
+    const pauseMediaStream = useCallback(async (stream: MediaStream) => {
+        stream.getAudioTracks().forEach(track => {
+            track.enabled = false;
+        });
+    }, []);
+
+    const resumeMediaStream = useCallback(async (stream: MediaStream): Promise<MediaStream> => {
+        const liveTrackExists = stream.getAudioTracks().some(track => track.readyState === 'live');
+        if (!liveTrackExists) {
+            mediaStreamRef.current = null;
+            return getOrCreateMediaStream();
+        }
+
+        stream.getAudioTracks().forEach(track => {
+            track.enabled = true;
+        });
+        mediaStreamRef.current = stream;
+        return stream;
+    }, [getOrCreateMediaStream]);
 
     // VAD 설정 - pause/listening 확인
-    const { loading: vadLoading, start: vadStart, pause: vadPause } = useMicVAD({
+    const { loading: vadLoading, start: vadStart, pause: vadPause, userSpeaking, listening } = useMicVAD({
         model: "v5",
         inputSampleRate: AUDIO_CONFIG.sampleRate,
         baseAssetPath: '/',
         onnxWASMBasePath: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/',
+        getStream: getOrCreateMediaStream,
+        pauseStream: pauseMediaStream,
+        resumeStream: resumeMediaStream,
         onFrameProcessed: (probs: any, frame: Float32Array) => {
             const isSpeech = probs.isSpeech > 0.6;
             const int16Frame = float32ToInt16(frame);
@@ -74,16 +131,84 @@ const useRealtimeStream = (): RealtimeStreamControls => {
         isRecordingRef.current = isRecording;
     }, [isRecording]);
 
+    // isPaused 변경 시 ref 동기화
+    useEffect(() => {
+        isPausedRef.current = isPaused;
+    }, [isPaused]);
+
+    // VAD 로딩 완료 시 즉시 pause하여 마이크 자동 시작 방지
+    useEffect(() => {
+        if (!vadLoading && vadPause) {
+            vadPause();
+            console.log("VAD 로딩 완료, 자동 pause 적용됨");
+        }
+    }, [vadLoading, vadPause]);
+
+    // 침묵 오디오 프레임 생성 및 전송 함수
+    const sendSilenceFrame = useCallback(() => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            // 100ms분량의 침묵 오디오 (16000Hz * 0.1s = 1600 samples)
+            const silenceFrameSize = Math.floor(AUDIO_CONFIG.sampleRate * 0.1);
+            const silenceFrame = new Int16Array(silenceFrameSize).fill(0);
+            wsRef.current.send(silenceFrame.buffer);
+            // console.log("침묵 프레임 전송");
+        }
+    }, []);
+
+    // 일시정지 중 침묵 오디오 전송 인터벌 관리
+    useEffect(() => {
+        if (isPaused && isRecording) {
+            // 일시정지 상태: 100ms마다 침묵 프레임 전송
+            console.log("침묵 오디오 전송 시작 (WebSocket 연결 유지용)");
+            silenceIntervalRef.current = setInterval(() => {
+                sendSilenceFrame();
+            }, 100); // 100ms마다
+        } else {
+            // 일시정지 해제 또는 녹음 중지: 인터벌 정리
+            if (silenceIntervalRef.current) {
+                console.log("침묵 오디오 전송 중지");
+                clearInterval(silenceIntervalRef.current);
+                silenceIntervalRef.current = null;
+            }
+        }
+
+        return () => {
+            if (silenceIntervalRef.current) {
+                clearInterval(silenceIntervalRef.current);
+                silenceIntervalRef.current = null;
+            }
+        };
+    }, [isPaused, isRecording, sendSilenceFrame]);
+
     // 리소스 정리 함수
     const cleanupResources = useCallback(() => {
         console.log("리소스 정리 시작");
         
+        // 침묵 오디오 인터벌 정리
+        if (silenceIntervalRef.current) {
+            clearInterval(silenceIntervalRef.current);
+            silenceIntervalRef.current = null;
+        }
+        
         // VAD 중지 - pause 메서드 사용
         try {
             vadPause();
-            console.log("VAD 중지됨");
+            console.log("VAD pause 호출됨");
         } catch (e) {
             console.error("VAD 중지 오류:", e);
+        }
+        
+        // 마이크 스트림 ref에 저장된 것이 있다면 중지
+        if (mediaStreamRef.current) {
+            try {
+                mediaStreamRef.current.getTracks().forEach(track => {
+                    track.stop();
+                    console.log("저장된 마이크 트랙 중지:", track.label);
+                });
+                mediaStreamRef.current = null;
+            } catch (e) {
+                console.error("저장된 마이크 스트림 중지 오류:", e);
+            }
         }
         
         // WebSocket 연결 닫기
@@ -218,7 +343,7 @@ const useRealtimeStream = (): RealtimeStreamControls => {
                 console.error("WebSocket 실행 중 오류:", error);
             };
 
-            // VAD 시작 - start 메서드 사용
+            // VAD 시작 - start 메서드 사용 (VAD가 내부적으로 마이크 스트림 관리)
             if (typeof vadStart === 'function') {
                 vadStart();
                 console.log("VAD 시작됨");
@@ -246,16 +371,90 @@ const useRealtimeStream = (): RealtimeStreamControls => {
         cleanupResources();
 
         setIsRecording(false);
+        setIsPaused(false); // 일시정지 상태도 리셋
         setPartialText('');
         setTranscript(prev => prev + '\n[녹음 종료]');
         console.log("녹음 중지 완료");
 
     }, [isRecording, cleanupResources]);
 
+    // 녹음 일시정지 (WebSocket은 유지, VAD만 pause)
+    const pauseRecording = useCallback(() => {
+        if (!isRecording || isPaused) {
+            console.log("녹음 중이 아니거나 이미 일시정지됨");
+            return;
+        }
+        
+        console.log("녹음 일시정지");
+        try {
+            // 백엔드에 일시정지 상태 알림
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                wsRef.current.send(JSON.stringify({ command: "SET_PAUSED", value: true }));
+                console.log("일시정지 제어 메시지 전송");
+            }
+            
+            vadPause();
+            setIsPaused(true);
+            console.log("VAD 일시정지 완료");
+        } catch (e) {
+            console.error("VAD 일시정지 오류:", e);
+        }
+    }, [isRecording, isPaused, vadPause]);
+
+    // 녹음 재개 (VAD만 restart)
+    const resumeRecording = useCallback(() => {
+        if (!isRecording || !isPaused) {
+            console.log("녹음 중이 아니거나 일시정지 상태가 아님");
+            return;
+        }
+        
+        console.log("녹음 재개");
+        try {
+            // 백엔드에 재개 상태 알림
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                wsRef.current.send(JSON.stringify({ command: "SET_PAUSED", value: false }));
+                console.log("재개 제어 메시지 전송");
+            }
+            
+            vadStart();
+            setIsPaused(false);
+            console.log("VAD 재개 완료");
+        } catch (e) {
+            console.error("VAD 재개 오류:", e);
+        }
+    }, [isRecording, isPaused, vadStart]);
+
     // 컴포넌트 언마운트 시 정리
     useEffect(() => {
         return () => {
-            console.log("컴포넌트 언마운트 - 리소스 정리");
+            console.log("컴포넌트 언마운트 - 리소스 정리 시작");
+            
+            // 침묵 인터벌 정리
+            if (silenceIntervalRef.current) {
+                clearInterval(silenceIntervalRef.current);
+                silenceIntervalRef.current = null;
+            }
+            
+            // VAD 강제 중지
+            try {
+                if (vadPause) {
+                    vadPause();
+                    console.log("언마운트 시 VAD pause 호출");
+                }
+            } catch (e) {
+                console.error("언마운트 시 VAD pause 오류:", e);
+            }
+            
+            // 마이크 스트림 정리
+            if (mediaStreamRef.current) {
+                mediaStreamRef.current.getTracks().forEach(track => {
+                    track.stop();
+                    console.log("언마운트 시 마이크 트랙 중지:", track.label);
+                });
+                mediaStreamRef.current = null;
+            }
+            
+            // WebSocket 정리
             if (wsRef.current) {
                 const ws = wsRef.current;
                 ws.onmessage = null;
@@ -264,17 +463,23 @@ const useRealtimeStream = (): RealtimeStreamControls => {
                 if (ws.readyState === WebSocket.OPEN) {
                     ws.close();
                 }
+                wsRef.current = null;
             }
+            
+            console.log("컴포넌트 언마운트 - 리소스 정리 완료");
         };
-    }, []);
+    }, [vadPause]);
 
     return {
         isRecording: isRecording || vadLoading,
+        isPaused,
         transcript,
         partialText,
         translation,
         startRecording,
         stopRecording,
+        pauseRecording,
+        resumeRecording,
         vadLoading: vadLoading,
     };
 };

@@ -11,7 +11,7 @@ const useHealthCheck = () => {
 
     // 2. 컴포넌트 로드 시 헬스 체크 API 호출 (App.js의 로직 재활용)
     useEffect(() => {
-        fetch(`${apiUrl}/health-check`)
+        fetch(`${apiUrl}/api/v1/health-check`)
             .then(response => {
                 if (!response.ok) {
                     // HTTP 503 등 오류 시, JSON 데이터(상세 오류)를 파싱

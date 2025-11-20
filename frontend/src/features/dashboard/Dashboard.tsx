@@ -3,7 +3,7 @@ import { MeetingStart } from "@/features/realtime/MeetingStart";
 import { MeetingListView } from "@/features/meetings/MeetingListView";
 import { ActionItemsPage } from "@/features/action-items/ActionItemsPage";
 import { TemplateSettings } from "@/features/settings/TemplateSettings";
-import { NotificationSettings } from "@/features/settings/NotificationSettings";
+// import { NotificationSettings } from "@/features/settings/NotificationSettings";
 import { TranslationSettings } from "@/features/settings/TranslationSettings";
 import { KeywordSettings } from "@/features/settings/KeywordSettings";
 import { PlatformSettings } from "@/features/settings/PlatformSettings";
@@ -214,12 +214,12 @@ export default function Dashboard() {
         );
 
       case "template":
-        return <TemplateSettings />;
+        return <TemplateSettings onBack={() => setActiveSection("settings")} />;
 
-      case "notification-settings":
-        return (
-          <NotificationSettings onBack={() => setActiveSection("settings")} />
-        );
+      // case "notification-settings":
+      //   return (
+      //     <NotificationSettings onBack={() => setActiveSection("settings")} />
+      //   );
 
       case "translation-settings":
         return (
@@ -236,7 +236,7 @@ export default function Dashboard() {
 
       case "settings":
         return (
-          <div className="bg-white rounded-2xl p-8 shadow-sm border border-border">
+          <div className="bg-white rounded-2xl p-8 shadow-sm border border-border w-[1100px] max-w-[1200px] mx-auto">
             <h2 className="mb-6 text-foreground">환경설정</h2>
             <div className="space-y-3">
               {/* 템플릿 설정 추가 */}
@@ -317,7 +317,7 @@ export default function Dashboard() {
                     <div>
                       <h3 className="mb-1">연동 플랫폼 설정</h3>
                       <p className="text-muted-foreground text-sm">
-                        Notion, Slack 등 플랫폼 연동 계정 설정
+                        Notion, Jira 등 플랫폼 연동 계정 설정
                       </p>
                     </div>
                   </div>

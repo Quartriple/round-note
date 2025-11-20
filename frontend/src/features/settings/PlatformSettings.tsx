@@ -38,15 +38,6 @@ export function PlatformSettings({ onBack }: PlatformSettingsProps) {
       color: "border-slate-300 bg-slate-50"
     },
     {
-      id: "slack",
-      name: "Slack",
-      description: "회의 종료 시 Slack 채널에 요약 메시지를 전송합니다",
-      icon: "💬",
-      connected: false,
-      enabled: false,
-      color: "border-purple-300 bg-purple-50"
-    },
-    {
       id: "google-calendar",
       name: "Google Calendar",
       description: "액션 아이템을 Google Calendar 이벤트로 추가합니다",
@@ -167,7 +158,7 @@ export function PlatformSettings({ onBack }: PlatformSettingsProps) {
   };
 
   return (
-    <div className="bg-white rounded-2xl p-8 shadow-sm border border-border">
+    <div className="bg-white rounded-2xl p-8 shadow-sm border border-border w-[1100px] max-w-[1100px] mx-auto">
       <div className="mb-6 flex items-center gap-4">
         <Button
           onClick={onBack}
@@ -244,7 +235,7 @@ export function PlatformSettings({ onBack }: PlatformSettingsProps) {
                     />
                   </div>
 
-                  {(platform.id === "slack" || platform.id === "notion") && (
+                  {(platform.id === "notion") && (
                     <div className="space-y-2">
                       <Label htmlFor={`${platform.id}-webhook`}>
                         Webhook URL (선택사항)

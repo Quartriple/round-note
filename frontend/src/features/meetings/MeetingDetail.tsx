@@ -205,7 +205,7 @@ export function MeetingDetail({
   }, []);
 
   return (
-    <div className="space-y-4 md:space-y-6">
+    <div className="w-[1100px] mx-auto px-4 space-y-4 md:space-y-6">
       {/* Header */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
