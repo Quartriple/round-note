@@ -4,6 +4,7 @@ import { Input } from '@/shared/ui/input';
 import { Alert, AlertDescription } from '@/shared/ui/alert';
 import { Badge } from '@/shared/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/ui/card';
+import useRealtimeStream from '@/hooks/useRealtimeStream';
 import { 
   Mic, 
   MicOff, 
@@ -47,10 +48,23 @@ interface MeetingContentInputProps {
 }
 
 export function MeetingContentInput({ meetingInfo, onComplete, onBack }: MeetingContentInputProps) {
+  // useRealtimeStream hook 사용
+  const {
+    isRecording,
+    isPaused,
+    transcript,
+    partialText,
+    translation,
+    startRecording,
+    stopRecording,
+    pauseRecording,
+    resumeRecording,
+    vadLoading,
+  } = useRealtimeStream();
+
   const [content, setContent] = useState('');
   const [editableTitle, setEditableTitle] = useState(meetingInfo.title || '');
   const [meetingDate, setMeetingDate] = useState(meetingInfo.date || new Date().toISOString().split('T')[0]);
-  const [isRecording, setIsRecording] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(true);
   const [micPermissionDenied, setMicPermissionDenied] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -60,11 +74,9 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
   const [recordingTime, setRecordingTime] = useState(0);
   const [inputLanguage, setInputLanguage] = useState('ko-KR');
   const [outputLanguage, setOutputLanguage] = useState('ko-KR');
-  const [interimText, setInterimText] = useState('');
   const [realtimeSummary, setRealtimeSummary] = useState('');
   const [activeTab, setActiveTab] = useState<'transcribe' | 'summary'>('transcribe');
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
-  const recognitionRef = useRef<any>(null);
   const contentEndRef = useRef<HTMLDivElement>(null);
   const summaryEndRef = useRef<HTMLDivElement>(null);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -92,70 +104,15 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
     }
   }, []);
 
+  // transcript가 업데이트되면 content에 반영
   useEffect(() => {
-    // Check for speech recognition support
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    
-    if (!SpeechRecognition) {
-      setSpeechSupported(false);
-      return;
+    if (transcript) {
+      setContent(transcript);
+      setTimeout(() => {
+        contentEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
     }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = inputLanguage;
-
-    recognition.onresult = (event: any) => {
-      let interimTranscript = '';
-      let finalTranscript = '';
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscript += transcript + ' ';
-        } else {
-          interimTranscript += transcript;
-        }
-      }
-
-      if (finalTranscript) {
-        setContent(prev => prev + finalTranscript);
-        setInterimText('');
-        setTimeout(() => {
-          contentEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-        }, 100);
-      } else if (interimTranscript) {
-        setInterimText(interimTranscript);
-      }
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error('Speech recognition error:', event.error);
-      if (event.error === 'no-speech') {
-        return;
-      }
-      if (event.error === 'not-allowed') {
-        setMicPermissionDenied(true);
-        setSpeechSupported(false);
-      }
-      setIsRecording(false);
-    };
-
-    recognition.onend = () => {
-      if (isRecording) {
-        recognition.start();
-      }
-    };
-
-    recognitionRef.current = recognition;
-
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-    };
-  }, [isRecording, inputLanguage]);
+  }, [transcript]);
 
   useEffect(() => {
     if (isRecording) {
@@ -280,50 +237,38 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
     }
   };
 
-  // Finalize audio recording
-  const finalizeAudioRecording = (): Promise<string> => {
+  // Finalize audio recording - Blob 반환
+  const finalizeAudioRecording = (): Promise<Blob | null> => {
     return new Promise((resolve) => {
       if (audioRecordingRef.current && audioRecordingRef.current.state !== 'inactive') {
         audioRecordingRef.current.onstop = () => {
           if (audioChunksRef.current.length > 0) {
             const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-            const audioUrl = URL.createObjectURL(audioBlob);
-            resolve(audioUrl);
+            resolve(audioBlob);
           } else {
-            // No recording, use sample audio
-            resolve('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3');
+            resolve(null);
           }
         };
         audioRecordingRef.current.stop();
       } else {
-        // No recording, use sample audio
-        resolve('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3');
+        resolve(null);
       }
     });
   };
 
   const toggleRecording = async () => {
-    if (!recognitionRef.current) return;
-
     if (isRecording) {
-      recognitionRef.current.stop();
+      stopRecording();
       stopAudioRecording();
-      setIsRecording(false);
-      setInterimText('');
       toast.success('녹음이 중지되었습니다.');
     } else {
       try {
-        await navigator.mediaDevices.getUserMedia({ audio: true });
-        setMicPermissionDenied(false);
-        recognitionRef.current.start();
+        await startRecording();
         startAudioRecording();
-        setIsRecording(true);
         setRecordingTime(0);
         toast.success('녹음이 시작되었습니다.');
       } catch (error) {
-        if (error instanceof Error && error.name !== 'NotAllowedError') {
-          console.error('Microphone error:', error);
-        }
+        console.error('Recording error:', error);
         setMicPermissionDenied(true);
         setSpeechSupported(false);
         toast.error('마이크 권한이 필요합니다.');
@@ -384,19 +329,18 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
     }
 
     if (isRecording) {
-      recognitionRef.current.stop();
-      setIsRecording(false);
+      stopRecording();
     }
 
     setIsProcessing(true);
     
-    // Finalize audio recording and get URL
-    const recordedAudioUrl = await finalizeAudioRecording();
+    // Finalize audio recording and get Blob
+    const recordedAudioBlob = await finalizeAudioRecording();
     
-    // Add audio URL to analysis
+    // Add audio Blob to analysis
     const analysisWithAudio = {
       ...aiAnalysis,
-      audioUrl: recordedAudioUrl
+      audioBlob: recordedAudioBlob // Blob을 전달
     };
     
     setTimeout(() => {
@@ -504,9 +448,9 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
               <span className="font-mono">{formatTime(recordingTime)}</span>
             </div>
             {isRecording && (
-              <Badge className="bg-red-500 hover:bg-red-600 text-white animate-pulse">
+              <Badge className={`${isPaused ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-red-500 hover:bg-red-600'} text-white ${!isPaused && 'animate-pulse'}`}>
                 <span className="w-2 h-2 bg-white rounded-full mr-1.5"></span>
-                REC
+                {isPaused ? 'PAUSED' : 'REC'}
               </Badge>
             )}
           </div>
@@ -568,16 +512,16 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
           {/* 실시간 전사 탭 */}
           {activeTab === 'transcribe' && (
             <div>
-              {/* 녹취 시작 버튼 */}
-              <div className="mb-4 flex justify-center">
+              {/* 녹취 컨트롤 버튼 */}
+              <div className="mb-4 flex gap-2 justify-center">
                 <Button
                   onClick={toggleRecording}
-                  disabled={!speechSupported}
+                  disabled={!speechSupported || vadLoading}
                   size="lg"
-                  className={`w-full max-w-md gap-2 ${
+                  className={`flex-1 max-w-md gap-2 ${
                     isRecording 
                       ? 'bg-red-500 hover:bg-red-600' 
-                      : 'bg-red-500 hover:bg-red-600'
+                      : 'bg-primary hover:bg-primary/90'
                   } ${!speechSupported ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   {isRecording ? (
@@ -592,16 +536,37 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
                     </>
                   )}
                 </Button>
+                
+                {isRecording && (
+                  <Button
+                    onClick={isPaused ? resumeRecording : pauseRecording}
+                    size="lg"
+                    variant="outline"
+                    className="gap-2 w-32"
+                  >
+                    {isPaused ? (
+                      <>
+                        <PlayCircle className="w-5 h-5" />
+                        재개
+                      </>
+                    ) : (
+                      <>
+                        <PauseCircle className="w-5 h-5" />
+                        일시정지
+                      </>
+                    )}
+                  </Button>
+                )}
               </div>
 
               {/* 전사 내용 표시 영역 - 고정 높이 + 스크롤 */}
-              <div className="h-[400px] overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50">
-                {content || interimText ? (
+              <div className="h-[400px] w-[1000px] overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50">
+                {content || partialText ? (
                   <div className="space-y-2">
                     <div className="whitespace-pre-wrap text-slate-700 text-sm md:text-base leading-relaxed">
                       {content}
-                      {interimText && (
-                        <span className="text-slate-400 italic">{interimText}</span>
+                      {partialText && (
+                        <span className="text-slate-400 italic"> {partialText}</span>
                       )}
                       <div ref={contentEndRef} />
                     </div>
@@ -642,16 +607,16 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
           {/* 실시간 전사 요약 탭 */}
           {activeTab === 'summary' && (
             <div>
-              {/* 녹취 시작 버튼 */}
+              {/* 녹취 컨트롤 버튼 */}
               <div className="mb-4 flex gap-2 justify-center">
                 <Button
                   onClick={toggleRecording}
-                  disabled={!speechSupported}
+                  disabled={!speechSupported || vadLoading}
                   size="lg"
                   className={`flex-1 max-w-md gap-2 ${
                     isRecording 
                       ? 'bg-red-500 hover:bg-red-600' 
-                      : 'bg-red-500 hover:bg-red-600'
+                      : 'bg-primary hover:bg-primary/90'
                   } ${!speechSupported ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   {isRecording ? (
@@ -666,41 +631,31 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
                     </>
                   )}
                 </Button>
-                <Button
-                  onClick={() => {
-                    const sampleText = `안녕하세요. 오늘 회의를 시작하겠습니다.
-
-먼저 지난주 진행 상황에 대해 공유드리겠습니다. 마케팅팀에서 준비한 신규 캠페인 기획안이 완료되었고, 개발팀에서는 모바일 앱 베타 버전이 80% 정도 진행되었습니다.
-
-다음으로 이번 주 주요 안건에 대해 논의하겠습니다.
-
-첫 번째, 신제품 출시 일정에 대해 논의가 필요합니다. 개발 일정을 고려했을 때 다음 달 15일 출시가 적절해 보입니다. 김철수님께서 제품 QA를 담당해주시고, 이영희님께서는 마케팅 자료를 준비해주시기 바랍니다.
-
-두 번째, 예산 배분 건입니다. 광고비를 기존 500만원에서 700만원으로 증액하는 것이 좋겠다는 의견이 있었습니다. 이 부분은 다음 주까지 검토 후 최종 결정하기로 했습니다.
-
-세 번째, 고객 피드백 개선 방안입니다. 최근 고객 만족도 조사 결과 UI/UX 개선이 필요하다는 의견이 많았습니다. 디자인팀에서 다음 주까지 개선안을 제출하기로 했습니다.
-
-마지막으로 액션 아이템을 정리하겠습니다.
-- 김철수님: 제품 QA 진행, 마감일은 이번 주 금요일
-- 이영희님: 마케팅 자료 준비, 마감일은 다음 주 월요일  
-- 박민수님: 예산안 검토 및 보고서 작성, 마감일은 다음 주 수요일
-- 정수진님: UI/UX 개선안 제출, 마감일은 다음 주 금요일
-
-오늘 회의는 여기까지입니다. 수고하셨습니다.`;
-                    setContent(prev => prev + sampleText);
-                    toast.success('샘플 텍스트가 추가되었습니다.');
-                  }}
-                  variant="outline"
-                  size="lg"
-                  className="gap-2 whitespace-nowrap"
-                >
-                  <Edit3 className="w-5 h-5" />
-                  샘플 추가
-                </Button>
+                
+                {isRecording && (
+                  <Button
+                    onClick={isPaused ? resumeRecording : pauseRecording}
+                    size="lg"
+                    variant="outline"
+                    className="gap-2 w-32"
+                  >
+                    {isPaused ? (
+                      <>
+                        <PlayCircle className="w-5 h-5" />
+                        재개
+                      </>
+                    ) : (
+                      <>
+                        <PauseCircle className="w-5 h-5" />
+                        일시정지
+                      </>
+                    )}
+                  </Button>
+                )}
               </div>
 
               {/* 요약 내용 표시 영역 - 고정 높이 + 스크롤 */}
-              <div className="h-[400px] overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50">
+              <div className="h-[400px] w-[1000px] overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50">
                 {realtimeSummary ? (
                   <div className="space-y-3">
                     <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200">

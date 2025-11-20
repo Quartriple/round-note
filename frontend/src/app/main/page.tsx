@@ -7,14 +7,14 @@ import Dashboard from "@/features/dashboard/Dashboard";
 export default function MainPage() {
   const router = useRouter();
 
-    useEffect(() => {
-    const loggedInUser = localStorage.getItem("roundnote-loggedin");
-    if (!loggedInUser) {
-        router.replace("/login"); // alert 대신 바로 이동
+  useEffect(() => {
+    // JWT 토큰 확인
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      // 토큰이 없으면 로그인 페이지로
+      router.replace("/login");
     }
-    }, [router]);
+  }, [router]);
 
-  return <Dashboard />;  // 🔥 여기에서 바로 렌더링
+  return <Dashboard />;
 }
-
-// react-router-dom

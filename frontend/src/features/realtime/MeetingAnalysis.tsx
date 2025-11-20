@@ -273,26 +273,16 @@ export function MeetingAnalysis({ meeting, onUpdateMeeting }: MeetingAnalysisPro
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base md:text-lg">
                 <ExternalLink className="w-5 h-5 text-green-600" />
-                일정 및 협업 툴 연동
+                업무 협업 툴 연동
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <Button variant="outline" className="gap-2" onClick={() => toast.info('Google 캘린더 연동은 각 액션 아이템에서 가능합니다.')}>
-                  <CalendarIcon className="w-4 h-4" />
-                  <span className="hidden md:inline">Google 캘린더</span>
-                  <span className="md:hidden">Google</span>
-                </Button>
-                <Button variant="outline" className="gap-2" onClick={() => toast.info('Naver 캘린더 연동 준비 중입니다.')}>
-                  <CalendarIcon className="w-4 h-4" />
-                  <span className="hidden md:inline">Naver 캘린더</span>
-                  <span className="md:hidden">Naver</span>
-                </Button>
-                <Button variant="outline" className="gap-2" onClick={handleExportToNotion}>
+              <div className="flex justify-center gap-[130px]">
+                <Button variant="outline" className="w-[400px] gap-2 border-[#000000] text-[#000000] hover:bg-[#000000]/10" onClick={handleExportToNotion}>
                   <ExternalLink className="w-4 h-4" />
                   Notion
                 </Button>
-                <Button variant="outline" className="gap-2" onClick={handleExportToJira}>
+                <Button variant="outline" className="w-[400px] gap-2 border-[#0052CC] text-[#0052CC] hover:bg-[#0052CC]/10" onClick={handleExportToJira}>
                   <ExternalLink className="w-4 h-4" />
                   Jira
                 </Button>

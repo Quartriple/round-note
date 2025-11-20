@@ -36,7 +36,7 @@ export function Register({ onRegister, onBackToLogin }: RegisterProps) {
     return password.length >= 8 && /[a-zA-Z]/.test(password) && /[0-9]/.test(password);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -65,30 +65,34 @@ export function Register({ onRegister, onBackToLogin }: RegisterProps) {
       return;
     }
 
-    // 회원가입 처리 (임시로 로컬스토리지에 저장)
-    const users = JSON.parse(localStorage.getItem('roundnote-users') || '[]');
-    
-    // 이메일 중복 확인
-    if (users.some((user: any) => user.email === email)) {
-      setError('이미 등록된 이메일입니다.');
-      return;
+    // 백엔드 API를 통한 회원가입 처리
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password, name }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // JWT 토큰 저장
+        localStorage.setItem('access_token', data.access_token);
+        toast.success('회원가입이 완료되었습니다!');
+        
+        // 메인 페이지로 이동 (토큰이 이미 저장되어 있으므로 자동 로그인됨)
+        setTimeout(() => {
+          onRegister();
+        }, 1000);
+      } else {
+        const errorData = await response.json();
+        setError(errorData.detail || '회원가입에 실패했습니다.');
+      }
+    } catch (err) {
+      console.error('회원가입 중 오류 발생:', err);
+      setError('회원가입 중 오류가 발생했습니다. 다시 시도해주세요.');
     }
-
-    // 새 사용자 추가
-    users.push({
-      email,
-      password, // 실제로는 해시화해야 함
-      name,
-      createdAt: new Date().toISOString()
-    });
-
-    localStorage.setItem('roundnote-users', JSON.stringify(users));
-    toast.success('회원가입이 완료되었습니다!');
-    
-    // 로그인 페이지로 이동
-    setTimeout(() => {
-      onBackToLogin();
-    }, 1000);
   };
 
   const passwordStrength = (password: string) => {
