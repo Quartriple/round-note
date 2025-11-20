@@ -21,6 +21,10 @@ def create_user(db: Session, user: user_schema.UserCreate):
     db.refresh(db_user)
     return db_user
 
+def get_user_by_id(db: Session, user_id: str):
+    """USER_ID로 사용자 객체를 조회합니다."""
+    return db.query(models.User).filter(models.User.USER_ID == user_id).first()
+
 def authenticate_user(db: Session, email: str, password: str):
     user = get_user_by_email(db, email)
     if not user:
