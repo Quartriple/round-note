@@ -20,8 +20,9 @@ p_ulid = partial(default_ulid)
 
 # 1. 사용자(USER는 SQL 예약어이므로 따옴표로 감쌉니다) # 유저가 만든/할당된 객체들의 중심
 class User(Base):
-    __tablename__ = '"USER"'
-
+    __tablename__ = "RN_USER"
+    
+    # [수정] PK: NUMBER -> TEXT(ULID)
     USER_ID = Column(TEXT, primary_key=True, default=p_ulid)
     PW = Column(TEXT, nullable=False)
     NAME = Column(TEXT, nullable=False)

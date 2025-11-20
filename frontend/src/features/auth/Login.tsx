@@ -66,8 +66,8 @@ export function Login({ onLogin, onShowRegister }: LoginProps) {
 
   const handleGoogleLogin = () => {
     console.log('구글 로그인 시도');
-    alert('구글 로그인 기능은 실제 서비스에서 Google OAuth를 통해 구현됩니다.');
-    onLogin();
+    // 백엔드 Google OAuth 엔드포인트로 리다이렉트
+    window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/google/login`;
   };
 
   return (

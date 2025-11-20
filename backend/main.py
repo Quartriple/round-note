@@ -1,6 +1,7 @@
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 import psycopg
 import redis
 from botocore.client import Config
@@ -18,6 +19,9 @@ load_dotenv()
 
 # 1. FastAPI 앱 생성 및 설정
 app = FastAPI()
+
+# 세션 미들웨어 추가 (Google OAuth에 필요)
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY", "your-secret-key-here"))
 
 # 2. CORS 설정
 origins = [
