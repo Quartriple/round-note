@@ -652,19 +652,26 @@ logger.error("LLM 요약 오류: %s", str(e))
   - [x] 오디오 파일 로컬 저장 (WAV)
   - [x] 프론트엔드 WebSocket 훅 (useRealtimeStream)
 
+- [x] **Meetings CRUD API 구현**
+  - [x] GET /meetings (회의 목록 조회 with JWT 인증)
+  - [x] POST /meetings (새 회의 생성)
+  - [x] GET /meetings/{id} (회의 상세 조회)
+  - [x] PUT /meetings/{id} (회의 정보 수정)
+  - [x] DELETE /meetings/{id} (회의 삭제)
+  - [x] POST /meetings/{id}/end (회의 종료 처리)
+
 **Phase 1B - 남은 작업 ⏳**
 
 - [ ] **추가 인증 기능**
-  - [ ] GET /auth/me (JWT 토큰 기반 현재 사용자 정보)
-  - [ ] POST /auth/logout (로그아웃 처리)
+  - [x] GET /auth/me (JWT 토큰 기반 현재 사용자 정보)
+  - [x] POST /auth/logout (로그아웃 처리)
   - [ ] 보안 개선 (localStorage → httpOnly Cookie)
 
-- [ ] **Meetings API 라우터 구현**
-  - [ ] GET /meetings (회의 목록 조회)
-  - [ ] POST /meetings (새 회의 생성)
-  - [ ] GET /meetings/{id} (회의 상세 조회)
-  - [ ] PUT /meetings/{id} (회의 정보 수정, 종료 시 Pass 2 작업 RQ 등록)
-  - [ ] DELETE /meetings/{id} (회의 삭제)
+- [ ] **회의 저장 통합**
+  - [ ] 회의 종료 시 전사 내용(CONTENT), AI 분석(AI_SUMMARY) DB 저장
+  - [ ] 액션 아이템 자동 추출 및 ACTION_ITEM 테이블 저장
+  - [ ] Summary 테이블 연동 (회의별 요약 저장)
+  - [ ] 프론트엔드 → 백엔드 회의 저장 시 전체 데이터 전달
 
 **Phase 1C - 버그 수정 🐛**
 

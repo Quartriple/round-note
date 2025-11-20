@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { MeetingInfoInput } from '@/features/meetings/MeetingInfoInput';
 import { MeetingContentInput } from './MeetingContentInput';
 import type { Meeting } from '@/features/dashboard/Dashboard';
+import { createMeeting, endMeeting, type MeetingResponse } from '@/features/meetings/meetingsService';
+import { toast } from 'sonner';
 
 interface MeetingStartProps {
   meetings: Meeting[];
@@ -12,6 +14,7 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
   const [currentStep, setCurrentStep] = useState<'transcribe' | 'info'>('transcribe');
   const [transcribedContent, setTranscribedContent] = useState('');
   const [aiAnalysis, setAiAnalysis] = useState<any>(null);
+  const [createdMeetingId, setCreatedMeetingId] = useState<string | null>(null);
 
   // 회의 전사 완료 시
   const handleContentComplete = (content: string, analysis?: any) => {
@@ -21,9 +24,29 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
   };
 
   // 정보 입력 완료 시 - 최종 저장
-  const handleInfoComplete = (info: { title: string; date: string; purpose: string; participants: string[] }) => {
-    // AI 분석 결과가 있으면 사용, 없으면 기본 패턴 매칭 사용
-    const extractActionItems = (text: string) => {
+  const handleInfoComplete = async (info: { title: string; date: string; purpose: string; participants: string[] }) => {
+    try {
+      // 1. 백엔드에 회의 생성 요청
+      toast.info('회의를 저장하는 중...');
+      
+      const meetingData = await createMeeting({
+        title: info.title,
+        purpose: info.purpose,
+        is_realtime: true,
+      });
+
+      // 2. 생성된 회의 ID 저장
+      setCreatedMeetingId(meetingData.meeting_id);
+
+      // 3. 회의 종료 처리 (END_DT 기록)
+      await endMeeting(meetingData.meeting_id, {
+        status: 'COMPLETED',
+        ended_at: new Date().toISOString(),
+      });
+
+      // 4. 로컬 state 업데이트를 위한 데이터 구성
+      // AI 분석 결과가 있으면 사용, 없으면 기본 패턴 매칭 사용
+      const extractActionItems = (text: string) => {
       const lines = text.split('\n');
       const actionItems = [];
       
@@ -108,24 +131,130 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
       actionItems = extractActionItems(transcribedContent);
     }
 
-    const now = new Date().toISOString();
-    
-    const newMeeting: Meeting = {
-      id: Date.now().toString(),
-      title: info.title,
-      date: info.date,
-      content: transcribedContent,
-      summary,
-      actionItems,
-      createdAt: now,
-      updatedAt: now,
-      participants: info.participants,
-      keyDecisions: aiAnalysis?.keyDecisions || [],
-      nextSteps: aiAnalysis?.nextSteps || [],
-      audioUrl: aiAnalysis?.audioUrl || ''
-    };
-    
-    onAddMeeting(newMeeting);
+      const now = new Date().toISOString();
+      
+      const newMeeting: Meeting = {
+        id: meetingData.meeting_id, // 백엔드에서 받은 ID 사용
+        title: info.title,
+        date: info.date,
+        content: transcribedContent,
+        summary,
+        actionItems,
+        createdAt: meetingData.start_dt || now,
+        updatedAt: meetingData.end_dt || now,
+        participants: info.participants,
+        keyDecisions: aiAnalysis?.keyDecisions || [],
+        nextSteps: aiAnalysis?.nextSteps || [],
+        audioUrl: aiAnalysis?.audioUrl || ''
+      };
+      
+      onAddMeeting(newMeeting);
+      toast.success('회의가 성공적으로 저장되었습니다!');
+    } catch (error) {
+      console.error('Failed to save meeting:', error);
+      toast.error('회의 저장에 실패했습니다. 다시 시도해주세요.');
+      
+      // 에러 발생 시에도 로컬 상태는 업데이트 (임시 ID 사용)
+      const extractActionItems = (text: string) => {
+        const lines = text.split('\n');
+        const actionItems = [];
+        
+        const keywordSettings = localStorage.getItem('roundnote-keyword-settings');
+        let actionKeywords = ['액션', '할일', '과제', '담당', '진행', '검토', '확인', '준비', '작성', '제출'];
+        
+        if (keywordSettings) {
+          try {
+            const settings = JSON.parse(keywordSettings);
+            if (settings.actionKeywords && settings.actionKeywords.length > 0) {
+              actionKeywords = settings.actionKeywords;
+            }
+          } catch (error) {
+            console.error('Failed to load keyword settings:', error);
+          }
+        }
+        
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (trimmedLine.length > 5 && actionKeywords.some(keyword => trimmedLine.includes(keyword))) {
+            const assigneeMatch = trimmedLine.match(/([가-힣]{2,4})\s*(?:님|씨|:|,)/);
+            const assignee = assigneeMatch ? assigneeMatch[1] : '미정';
+            
+            actionItems.push({
+              id: `${Date.now()}-${Math.random()}`,
+              text: trimmedLine.replace(/^[-•*]\s*/, ''),
+              assignee,
+              dueDate: '',
+              completed: false
+            });
+          }
+        }
+        
+        return actionItems;
+      };
+
+      const generateSummary = (text: string) => {
+        const lines = text.split('\n').filter(line => line.trim().length > 0);
+        const summaryLines = [];
+        
+        const importantKeywords = ['결정', '합의', '중요', '주요', '핵심', '논의', '결론'];
+        
+        for (const line of lines) {
+          if (importantKeywords.some(keyword => line.includes(keyword))) {
+            summaryLines.push(line.trim().replace(/^[-•*]\s*/, ''));
+          }
+        }
+        
+        if (summaryLines.length === 0 && lines.length > 0) {
+          summaryLines.push(...lines.slice(0, 3).map(l => l.trim().replace(/^[-•*]\s*/, '')));
+        }
+        
+        return summaryLines.length > 0 
+          ? summaryLines.join('\n') 
+          : '회의 내용에서 주요 사항을 추출하지 못했습니다.';
+      };
+
+      let summary = '';
+      let actionItems: any[] = [];
+      
+      if (aiAnalysis) {
+        summary = aiAnalysis.summary || generateSummary(transcribedContent);
+        
+        if (aiAnalysis.actionItems && Array.isArray(aiAnalysis.actionItems)) {
+          actionItems = aiAnalysis.actionItems.map((item: any, index: number) => ({
+            id: `${Date.now()}-${index}`,
+            text: item.task || item.text || '',
+            assignee: item.assignee || '미정',
+            dueDate: item.dueDate || '',
+            completed: false,
+            priority: item.priority
+          }));
+        } else {
+          actionItems = extractActionItems(transcribedContent);
+        }
+      } else {
+        summary = generateSummary(transcribedContent);
+        actionItems = extractActionItems(transcribedContent);
+      }
+
+      const now = new Date().toISOString();
+      
+      const newMeeting: Meeting = {
+        id: Date.now().toString(), // 임시 ID
+        title: info.title,
+        date: info.date,
+        content: transcribedContent,
+        summary,
+        actionItems,
+        createdAt: now,
+        updatedAt: now,
+        participants: info.participants,
+        keyDecisions: aiAnalysis?.keyDecisions || [],
+        nextSteps: aiAnalysis?.nextSteps || [],
+        audioUrl: aiAnalysis?.audioUrl || ''
+      };
+      
+      onAddMeeting(newMeeting);
+    }
   };
 
   const handleBack = () => {
