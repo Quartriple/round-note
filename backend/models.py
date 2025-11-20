@@ -81,6 +81,18 @@ class Meeting(Base):
     CREATOR_ID = Column(TEXT, ForeignKey('RN_USER.USER_ID'), nullable=False)
     # NCP Object Key 저장용
     LOCATION = Column(TEXT, nullable=True)
+    # 회의 전사 내용 전체
+    CONTENT = Column(TEXT, nullable=True)
+    # AI 요약 결과
+    AI_SUMMARY = Column(TEXT, nullable=True)
+    # 참석자 정보 (JSON 배열)
+    PARTICIPANTS = Column(JSONB, nullable=True)
+    # 주요 결정사항 (JSON 배열)
+    KEY_DECISIONS = Column(JSONB, nullable=True)
+    # 다음 단계 (JSON 배열)
+    NEXT_STEPS = Column(JSONB, nullable=True)
+    # 오디오 URL
+    AUDIO_URL = Column(TEXT, nullable=True)
 
     # 관계
     creator = relationship(
