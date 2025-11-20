@@ -141,6 +141,18 @@ def get_current_user_info(current_user: models.User = Depends(get_current_user))
     """
     return current_user
 
+@router.post("/logout")
+def logout(current_user: models.User = Depends(get_current_user)):
+    """
+    사용자 로그아웃 처리
+    
+    JWT는 stateless하므로 서버에서 토큰을 무효화할 수 없습니다.
+    클라이언트에서 토큰을 삭제하는 것이 주된 로그아웃 방식이며,
+    이 엔드포인트는 로그아웃 기록이나 추가 작업이 필요한 경우 사용됩니다.
+    """
+    print(f"[DEBUG] 로그아웃 - USER_ID: {current_user.USER_ID}, Email: {current_user.EMAIL}")
+    return {"message": "로그아웃되었습니다."}
+
 @router.get("/users/debug")
 def get_all_users_debug(db: Session = Depends(get_db)):
     """디버그용: 모든 사용자 조회 (개발 환경에서만 사용, 배포 시 제거 필요)"""

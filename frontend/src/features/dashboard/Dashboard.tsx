@@ -109,9 +109,31 @@ export default function Dashboard() {
     setMeetings(newMeetings);
   };
 
-  const handleLogout = () => {
-  localStorage.removeItem("roundnote-loggedin"); // 로그인 키 제거
-  window.location.href = "/login";               // 로그인 페이지로 이동
+  const handleLogout = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      
+      if (token) {
+        // 백엔드 로그아웃 API 호출 (선택적)
+        await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/logout`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        }).catch(err => console.log('Logout API error:', err)); // 실패해도 계속 진행
+      }
+      
+      // JWT 토큰 제거
+      localStorage.removeItem('access_token');
+      
+      // 로그인 페이지로 이동
+      window.location.href = "/login";
+    } catch (error) {
+      console.error('로그아웃 중 오류:', error);
+      // 오류가 발생해도 토큰은 제거하고 로그인 페이지로 이동
+      localStorage.removeItem('access_token');
+      window.location.href = "/login";
+    }
   };
 
   // Show login screen if not logged in
