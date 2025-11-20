@@ -625,28 +625,59 @@ logger.error("LLM 요약 오류: %s", str(e))
 
 ### 1️⃣ 김기찬 (백엔드 리드) - 크리티컬 패스 (우선순위순)
 
-**Phase 1A (2-3일) - 필수 (간소화됨)**
+**Phase 1A - 완료됨 ✅**
 
-- [ ] **User 인증 (더미 + 최소 구현)**
-  - [ ] POST /auth/register (더미: email만 저장, password hash는 임시 처리)
-  - [ ] POST /auth/login (더미: hardcoded token 발급 가능)
-  - [ ] GET /auth/me (더미: 고정 user 반환)
-  - [ ] 더미 JWT 미들웨어 (Bearer token 검증 스킵하거나 토큰 없어도 진행 가능)
+- [x] **User 인증 구현**
+  - [x] POST /auth/register (실제 DB 연동, bcrypt 해싱)
+  - [x] POST /auth/login (JWT 토큰 발급)
+  - [x] User CRUD 함수 (create_user, authenticate_user, get_user_by_email)
+  - [x] JWT 토큰 생성/검증 (python-jose, passlib)
+  - [x] Pydantic User 스키마 (UserCreate, UserLogin, Token, UserOut)
 
-- [ ] **WebSocket 안정화 (Pass 1 - 실시간 STT)**
-  - [ ] Deepgram WebSocket 연결 (기존 코드 개선)
-  - [ ] 오류 처리 강화 (timeout, API key 만료)
-  - [ ] 자동 재연결 로직
-  - [ ] 로깅 개선 (진단용)
-  - [ ] 프론트와 메시지 포맷 확정 (realtime_gateway.py 로직 참고)
+- [x] **Google OAuth 2.0 구현**
+  - [x] GET /auth/google/login (Google 로그인 리다이렉트)
+  - [x] GET /auth/google/callback (OAuth 콜백 처리, JWT 발급)
+  - [x] authlib 통합 및 SessionMiddleware 추가
+  - [x] 신규 사용자 자동 생성 로직
 
-**Phase 1B (병렬 - 권현재 기다리지 말 것)**
+- [x] **데이터베이스 스키마 수정**
+  - [x] PostgreSQL 예약어 충돌 해결 (USER → RN_USER)
+  - [x] Alembic 마이그레이션 생성 및 적용
 
-- [ ] **API 라우팅 스켈레톤** (권현재가 CRUD 함수 만들 때까지 더미 반환)
-  - [ ] GET /meetings (더미 리스트 반환)
-  - [ ] POST /meetings (더미 생성)
-  - [ ] GET /meetings/{id} (더미 조회)
-  - [ ] **PUT /meetings/{id} (회의 종료 시 Pass 2 작업 RQ에 등록)
+- [x] **WebSocket 실시간 STT (Pass 1)**
+  - [x] Deepgram WebSocket 연결 구현
+  - [x] React ↔ Deepgram 양방향 중계
+  - [x] 실시간 번역 기능 (OpenAI API)
+  - [x] 일시정지/재개 제어
+  - [x] 오디오 파일 로컬 저장 (WAV)
+  - [x] 프론트엔드 WebSocket 훅 (useRealtimeStream)
+
+- [x] **Meetings CRUD API 구현**
+  - [x] GET /meetings (회의 목록 조회 with JWT 인증)
+  - [x] POST /meetings (새 회의 생성)
+  - [x] GET /meetings/{id} (회의 상세 조회)
+  - [x] PUT /meetings/{id} (회의 정보 수정)
+  - [x] DELETE /meetings/{id} (회의 삭제)
+  - [x] POST /meetings/{id}/end (회의 종료 처리)
+
+**Phase 1B - 남은 작업 ⏳**
+
+- [ ] **추가 인증 기능**
+  - [x] GET /auth/me (JWT 토큰 기반 현재 사용자 정보)
+  - [x] POST /auth/logout (로그아웃 처리)
+  - [ ] 보안 개선 (localStorage → httpOnly Cookie)
+
+- [ ] **회의 저장 통합**
+  - [ ] 회의 종료 시 전사 내용(CONTENT), AI 분석(AI_SUMMARY) DB 저장
+  - [ ] 액션 아이템 자동 추출 및 ACTION_ITEM 테이블 저장
+  - [ ] Summary 테이블 연동 (회의별 요약 저장)
+  - [ ] 프론트엔드 → 백엔드 회의 저장 시 전체 데이터 전달
+
+**Phase 1C - 버그 수정 🐛**
+
+- [ ] **프론트엔드 마이크 제어 이슈**
+  - [ ] 녹음 종료 버튼 클릭 시 새로고침 없이 마이크 비활성화 문제 해결
+  - [ ] MediaStream 트랙 정리 로직 개선
 
 ---
 

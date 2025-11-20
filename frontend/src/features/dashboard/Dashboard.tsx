@@ -61,27 +61,52 @@ export default function Dashboard() {
   const [activeSection, setActiveSection] = useState("home");
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Load from localStorage on mount
+
+  // 앱 시작 시 localStorage의 meetings-app-data를 강제로 삭제
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        const data = JSON.parse(stored);
-        setMeetings(data);
-      } catch (error) {
-        console.error("Failed to load meetings:", error);
-      }
-    }
+    localStorage.removeItem(STORAGE_KEY);
   }, []);
 
-  // Save to localStorage whenever meetings change
+  // 백엔드에서 회의 목록 불러오기
   useEffect(() => {
-    if (meetings.length > 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(meetings));
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  }, [meetings]);
+    const fetchMeetings = async () => {
+      try {
+        const token = localStorage.getItem('access_token');
+        if (!token) return;
+
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/meetings/`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          // 백엔드 응답을 프론트엔드 Meeting 타입으로 변환
+          const mappedMeetings: Meeting[] = data.map((m: any) => ({
+            id: m.meeting_id,
+            title: m.title,
+            date: m.start_dt?.split('T')[0] || new Date().toISOString().split('T')[0],
+            content: '', // TODO: 백엔드에 content 필드 추가 필요
+            summary: m.purpose || '',
+            actionItems: [], // TODO: 백엔드에서 action items 가져오기
+            createdAt: m.start_dt || new Date().toISOString(),
+            updatedAt: m.end_dt || new Date().toISOString(),
+            participants: [],
+            keyDecisions: [],
+            nextSteps: [],
+            audioUrl: ''
+          }));
+          setMeetings(mappedMeetings);
+        }
+      } catch (error) {
+        console.error('Failed to fetch meetings:', error);
+      }
+    };
+
+    fetchMeetings();
+  }, []);
 
   // Initialize notification checker
   useEffect(() => {
@@ -109,9 +134,31 @@ export default function Dashboard() {
     setMeetings(newMeetings);
   };
 
-  const handleLogout = () => {
-  localStorage.removeItem("roundnote-loggedin"); // 로그인 키 제거
-  window.location.href = "/login";               // 로그인 페이지로 이동
+  const handleLogout = async () => {
+    try {
+      const token = localStorage.getItem('access_token');
+      
+      if (token) {
+        // 백엔드 로그아웃 API 호출 (선택적)
+        await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/logout`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        }).catch(err => console.log('Logout API error:', err)); // 실패해도 계속 진행
+      }
+      
+      // JWT 토큰 제거
+      localStorage.removeItem('access_token');
+      
+      // 로그인 페이지로 이동
+      window.location.href = "/login";
+    } catch (error) {
+      console.error('로그아웃 중 오류:', error);
+      // 오류가 발생해도 토큰은 제거하고 로그인 페이지로 이동
+      localStorage.removeItem('access_token');
+      window.location.href = "/login";
+    }
   };
 
   // Show login screen if not logged in

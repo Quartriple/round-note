@@ -6,6 +6,7 @@ from backend.schemas import user as user_schema
 from backend.crud import user as user_crud
 from backend.core.auth import security
 from backend import models
+from backend.dependencies import get_current_user
 from authlib.integrations.starlette_client import OAuth
 import os
 
@@ -130,6 +131,27 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         print(f"[DEBUG] Google OAuth 오류: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Google 로그인 중 오류가 발생했습니다: {str(e)}")
+
+@router.get("/me", response_model=user_schema.UserOut)
+def get_current_user_info(current_user: models.User = Depends(get_current_user)):
+    """
+    현재 로그인한 사용자 정보를 반환합니다.
+    
+    Authorization: Bearer <token> 헤더가 필요합니다.
+    """
+    return current_user
+
+@router.post("/logout")
+def logout(current_user: models.User = Depends(get_current_user)):
+    """
+    사용자 로그아웃 처리
+    
+    JWT는 stateless하므로 서버에서 토큰을 무효화할 수 없습니다.
+    클라이언트에서 토큰을 삭제하는 것이 주된 로그아웃 방식이며,
+    이 엔드포인트는 로그아웃 기록이나 추가 작업이 필요한 경우 사용됩니다.
+    """
+    print(f"[DEBUG] 로그아웃 - USER_ID: {current_user.USER_ID}, Email: {current_user.EMAIL}")
+    return {"message": "로그아웃되었습니다."}
 
 @router.get("/users/debug")
 def get_all_users_debug(db: Session = Depends(get_db)):
