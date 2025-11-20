@@ -77,11 +77,11 @@ export function Register({ onRegister, onBackToLogin }: RegisterProps) {
 
       if (response.ok) {
         const data = await response.json();
-        // JWT 토큰 저장 (나중에 Cookie로 변경 고려)
+        // JWT 토큰 저장
         localStorage.setItem('access_token', data.access_token);
         toast.success('회원가입이 완료되었습니다!');
         
-        // 로그인 페이지로 이동
+        // 메인 페이지로 이동 (토큰이 이미 저장되어 있으므로 자동 로그인됨)
         setTimeout(() => {
           onRegister();
         }, 1000);
