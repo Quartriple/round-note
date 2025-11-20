@@ -140,10 +140,32 @@ export function MeetingDetail({
     exportToWord(meeting);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (confirm('정말로 이 회의록을 삭제하시겠습니까?')) {
-      onDeleteMeeting(meeting.id);
-      onClose();
+      try {
+        const token = localStorage.getItem('access_token');
+        if (!token) {
+          alert('로그인이 필요합니다.');
+          return;
+        }
+
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/meetings/${meeting.id}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (response.ok) {
+          onDeleteMeeting(meeting.id);
+          onClose();
+        } else {
+          alert('회의록 삭제에 실패했습니다.');
+        }
+      } catch (error) {
+        console.error('Failed to delete meeting:', error);
+        alert('회의록 삭제 중 오류가 발생했습니다.');
+      }
     }
   };
 
