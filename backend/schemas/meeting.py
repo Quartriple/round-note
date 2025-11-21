@@ -53,6 +53,11 @@ class MeetingOut(MeetingBase):
         description="회의 전사 원문 전체",
         alias="content"
     )
+    TRANSLATED_CONTENT: Optional[str] = Field(
+        None,
+        description="번역된 전사 내용",
+        alias="translated_content"
+    )
     AI_SUMMARY: Optional[str] = Field(
         None,
         description="AI가 생성한 회의 요약",
@@ -77,6 +82,16 @@ class MeetingOut(MeetingBase):
         None,
         description="오디오 파일 URL",
         alias="audio_url"
+    )
+    
+    # 관계 필드 추가
+    summary: Optional[dict] = Field(
+        None,
+        description="회의 요약 정보"
+    )
+    action_items: List[dict] = Field(
+        default_factory=list,
+        description="액션 아이템 목록"
     )
 
     class Config:

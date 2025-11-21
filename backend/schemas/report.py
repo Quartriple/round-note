@@ -9,6 +9,7 @@ class SummaryOut(BaseModel):
     meeting_id: str = Field(..., description="회의 ID (ULID)")
     format: str = Field(..., description="요약 포맷 (예: markdown, text, json)")
     content: str = Field(..., description="요약 내용")
+    translated_content: Optional[str] = Field(None, description="번역된 요약 내용")
     created_dt: datetime = Field(..., description="요약 생성 시각")
 
     class Config:

@@ -137,9 +137,18 @@ export const deleteMeeting = async (meetingId: string): Promise<void> => {
 };
 
 /**
- * 회의 종료
+ * 회의 종료 (요약 및 액션 아이템 자동 생성)
  */
-export const endMeeting = async (meetingId: string, data?: EndMeetingRequest): Promise<{ message: string; meeting_id: string; status: string; end_dt?: string }> => {
+export const endMeeting = async (meetingId: string, data?: EndMeetingRequest): Promise<{ 
+  message: string; 
+  meeting_id: string; 
+  status: string; 
+  end_dt?: string;
+  content?: string;
+  audio_url?: string;
+  summary?: string;
+  action_items?: Array<{task: string; assignee: string; deadline: string}>;
+}> => {
   const response = await fetch(`${API_URL}/api/v1/meetings/${meetingId}/end`, {
     method: 'POST',
     headers: getHeaders(),
@@ -149,6 +158,88 @@ export const endMeeting = async (meetingId: string, data?: EndMeetingRequest): P
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to end meeting' }));
     throw new Error(error.detail || 'Failed to end meeting');
+  }
+
+  return response.json();
+};
+
+/**
+ * 회의 요약 조회
+ */
+export const getMeetingSummary = async (meetingId: string): Promise<{
+  summary_id: string;
+  meeting_id: string;
+  format: string;
+  content: string;
+  translated_content?: string;
+  created_dt: string;
+}> => {
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/summary`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch summary' }));
+    throw new Error(error.detail || 'Failed to fetch summary');
+  }
+
+  return response.json();
+};
+
+/**
+ * 회의 액션 아이템 조회
+ */
+export const getMeetingActionItems = async (meetingId: string): Promise<Array<{
+  item_id: string;
+  meeting_id: string;
+  title: string;
+  description?: string;
+  due_dt?: string;
+  priority?: string;
+  status: string;
+  assignee_id?: string;
+  external_tool?: string;
+  created_dt: string;
+  updated_dt?: string;
+}>> => {
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/action-items`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch action items' }));
+    throw new Error(error.detail || 'Failed to fetch action items');
+  }
+
+  return response.json();
+};
+
+/**
+ * 회의 내용 번역 (요약 또는 전사)
+ */
+export const translateMeetingContent = async (
+  meetingId: string, 
+  contentType: 'summary' | 'transcript',
+  targetLang: string = 'en'
+): Promise<{
+  meeting_id: string;
+  content_type: string;
+  translated_text: string;
+  cached: boolean;
+}> => {
+  const response = await fetch(
+    `${API_URL}/api/v1/reports/${meetingId}/translate?content_type=${contentType}&target_lang=${targetLang}`, 
+    {
+      method: 'POST',
+      headers: getHeaders(),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to translate' }));
+    throw new Error(error.detail || 'Failed to translate');
   }
 
   return response.json();

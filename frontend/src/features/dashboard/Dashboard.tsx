@@ -83,14 +83,23 @@ export default function Dashboard() {
 
         if (response.ok) {
           const data = await response.json();
+          console.log('[Dashboard] Fetched meetings from backend:', data);
+          
           // 백엔드 응답을 프론트엔드 Meeting 타입으로 변환
           const mappedMeetings: Meeting[] = data.map((m: any) => ({
             id: m.meeting_id,
             title: m.title || '제목 없음',
             date: m.start_dt?.split('T')[0] || new Date().toISOString().split('T')[0],
             content: m.content || '',
-            summary: m.ai_summary || m.purpose || '',
-            actionItems: [],
+            summary: m.summary?.content || m.ai_summary || m.purpose || '',
+            actionItems: (m.action_items || []).map((item: any) => ({
+              id: item.item_id,
+              text: item.title || item.description || '',
+              assignee: item.assignee_id || '미정',
+              dueDate: item.due_dt ? new Date(item.due_dt).toISOString().split('T')[0] : '',
+              completed: item.status === 'DONE',
+              priority: item.priority?.toLowerCase() || 'medium'
+            })),
             createdAt: m.start_dt || new Date().toISOString(),
             updatedAt: m.end_dt || new Date().toISOString(),
             participants: m.participants || [],
@@ -98,6 +107,8 @@ export default function Dashboard() {
             nextSteps: m.next_steps || [],
             audioUrl: m.audio_url || ''
           }));
+          
+          console.log('[Dashboard] Mapped meetings:', mappedMeetings);
           setMeetings(mappedMeetings);
         }
       } catch (error) {

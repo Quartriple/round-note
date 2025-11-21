@@ -321,7 +321,119 @@ async def search_meeting_content(
 
 
 # ============================================
-# 6. Jira 연동 (기존 유지)
+# 6. 번역 (요약 또는 전사 내용)
+# ============================================
+@router.post("/{meeting_id}/translate")
+async def translate_meeting_content(
+    meeting_id: str,
+    content_type: str,  # "summary" or "transcript"
+    target_lang: str = "en",  # 기본값: 영어
+    db: Session = Depends(get_db)
+):
+    """
+    회의 요약 또는 전사 내용을 번역합니다.
+    
+    - **content_type**: 번역할 내용 타입 ("summary" 또는 "transcript")
+    - **target_lang**: 목표 언어 (기본값: "en")
+    
+    번역 결과는 DB에 저장됩니다.
+    """
+    # 회의 존재 확인
+    meeting = db.query(models.Meeting).filter(
+        models.Meeting.MEETING_ID == meeting_id
+    ).first()
+    
+    if not meeting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Meeting {meeting_id} not found"
+        )
+    
+    try:
+        llm_service = LLMService()
+        
+        if content_type == "summary":
+            # 요약 번역
+            summary = db.query(models.Summary).filter(
+                models.Summary.MEETING_ID == meeting_id
+            ).first()
+            
+            if not summary:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Summary for meeting {meeting_id} not found"
+                )
+            
+            # 이미 번역된 내용이 있으면 반환
+            if summary.TRANSLATED_CONTENT:
+                return {
+                    "meeting_id": meeting_id,
+                    "content_type": "summary",
+                    "translated_text": summary.TRANSLATED_CONTENT,
+                    "cached": True
+                }
+            
+            # LLM으로 번역
+            translated_text = await llm_service.get_translation(summary.CONTENT)
+            
+            # DB에 저장
+            summary.TRANSLATED_CONTENT = translated_text
+            db.commit()
+            
+            return {
+                "meeting_id": meeting_id,
+                "content_type": "summary",
+                "translated_text": translated_text,
+                "cached": False
+            }
+        
+        elif content_type == "transcript":
+            # 전사 내용 번역
+            if not meeting.CONTENT:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"No transcript found for meeting {meeting_id}"
+                )
+            
+            # 이미 번역된 내용이 있으면 반환
+            if meeting.TRANSLATED_CONTENT:
+                return {
+                    "meeting_id": meeting_id,
+                    "content_type": "transcript",
+                    "translated_text": meeting.TRANSLATED_CONTENT,
+                    "cached": True
+                }
+            
+            # LLM으로 번역
+            translated_text = await llm_service.get_translation(meeting.CONTENT)
+            
+            # DB에 저장
+            meeting.TRANSLATED_CONTENT = translated_text
+            db.commit()
+            
+            return {
+                "meeting_id": meeting_id,
+                "content_type": "transcript",
+                "translated_text": translated_text,
+                "cached": False
+            }
+        
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="content_type must be 'summary' or 'transcript'"
+            )
+    
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Translation failed: {str(e)}"
+        )
+
+
+# ============================================
+# 7. Jira 연동 (기존 유지)
 # ============================================
 @router.post("/{meeting_id}/action-items/to-jira")
 async def push_action_items_to_jira(
