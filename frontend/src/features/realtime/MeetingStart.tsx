@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { MeetingInfoInput } from '@/features/meetings/MeetingInfoInput';
 import { MeetingContentInput } from './MeetingContentInput';
 import type { Meeting } from '@/features/dashboard/Dashboard';
@@ -12,6 +13,7 @@ interface MeetingStartProps {
 
 export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
   const [currentStep, setCurrentStep] = useState<'transcribe' | 'info'>('transcribe');
+  const router = useRouter();
   const [transcribedContent, setTranscribedContent] = useState('');
   const [aiAnalysis, setAiAnalysis] = useState<any>(null);
   const [createdMeetingId, setCreatedMeetingId] = useState<string | null>(null);
@@ -153,6 +155,16 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
     } catch (error) {
       console.error('Failed to save meeting:', error);
       toast.error('회의 저장에 실패했습니다. 다시 시도해주세요.');
+      // If auth error, redirect to login
+      try {
+        if (error instanceof Error && (error.name === 'AuthError' || /auth/i.test(error.message) || /유효하지/i.test(error.message))) {
+          toast.error('로그인이 필요합니다. 로그인 페이지로 이동합니다.');
+          router.push('/login');
+          return;
+        }
+      } catch (e) {
+        console.error('Router redirect failed', e);
+      }
       
       // 에러 발생 시에도 로컬 상태는 업데이트 (임시 ID 사용)
       const extractActionItems = (text: string) => {
