@@ -125,7 +125,8 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         access_token = security.create_access_token({"sub": db_user.USER_ID, "email": db_user.EMAIL})
         
         # 프론트엔드로 리다이렉트 (토큰을 쿼리 파라미터로 전달)
-        frontend_url = os.getenv('CORS_ORIGIN_LOCAL', 'http://localhost:3000')
+        # 배포 환경에서는 CORS_ORIGIN 사용, 로컬에서는 CORS_ORIGIN_LOCAL 사용
+        frontend_url = os.getenv('CORS_ORIGIN') or os.getenv('CORS_ORIGIN_LOCAL', 'http://localhost:3000')
         return RedirectResponse(url=f"{frontend_url}/login?token={access_token}")
         
     except Exception as e:
