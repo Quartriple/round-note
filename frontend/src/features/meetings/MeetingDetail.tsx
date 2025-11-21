@@ -192,19 +192,39 @@ export function MeetingDetail({
   const handleTranslate = async (text: string, targetLang: string, type: 'summary' | 'content') => {
     setIsTranslating(true);
     
-    // Mock translation - 실제로는 번역 API를 호출해야 합니다
-    // 예: Google Translate API, DeepL API 등
     try {
-      // Placeholder: 실제 번역 API 호출이 필요합니다
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // 백엔드 번역 API 호출
+      const contentType = type === 'summary' ? 'summary' : 'transcript';
       
-      if (type === 'summary') {
-        setTranslatedSummary(`[${targetLang.toUpperCase()}로 번역됨]\n${text}`);
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/reports/${meeting.id}/translate?content_type=${contentType}&target_lang=${targetLang}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          },
+        }
+      );
+      
+      if (response.ok) {
+        const result = await response.json();
+        
+        if (type === 'summary') {
+          setTranslatedSummary(result.translated_text);
+        } else {
+          setTranslatedContent(result.translated_text);
+        }
+        
+        console.log('[MeetingDetail] Translation completed:', result.cached ? '(cached)' : '(new)');
       } else {
-        setTranslatedContent(`[${targetLang.toUpperCase()}로 번역됨]\n${text}`);
+        const error = await response.json().catch(() => ({ detail: 'Translation failed' }));
+        console.error('[MeetingDetail] Translation error:', error);
+        alert(`번역 실패: ${error.detail || '알 수 없는 오류'}`);
       }
     } catch (error) {
-      console.error('Translation error:', error);
+      console.error('[MeetingDetail] Translation error:', error);
+      alert('번역 중 오류가 발생했습니다.');
     } finally {
       setIsTranslating(false);
     }

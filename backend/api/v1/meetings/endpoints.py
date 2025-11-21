@@ -52,13 +52,61 @@ def list_meetings(
     
     최신 회의가 먼저 나타납니다.
     """
-    meetings = meeting_crud.get_meetings_by_user(
-        db=db,
-        user_id=current_user.USER_ID,
-        skip=skip,
-        limit=limit
-    )
-    return meetings
+    from sqlalchemy.orm import joinedload
+    
+    # 요약과 액션 아이템을 함께 로드
+    meetings = db.query(models.Meeting).options(
+        joinedload(models.Meeting.summaries),
+        joinedload(models.Meeting.action_items)
+    ).filter(
+        models.Meeting.CREATOR_ID == current_user.USER_ID
+    ).order_by(
+        models.Meeting.START_DT.desc()
+    ).offset(skip).limit(limit).all()
+    
+    # dict로 변환
+    meeting_list = []
+    for meeting in meetings:
+        meeting_dict = {
+            "meeting_id": meeting.MEETING_ID,
+            "creator_id": meeting.CREATOR_ID,
+            "title": meeting.TITLE,
+            "purpose": meeting.PURPOSE,
+            "start_dt": meeting.START_DT,
+            "end_dt": meeting.END_DT,
+            "location": meeting.LOCATION,
+            "content": meeting.CONTENT,
+            "translated_content": meeting.TRANSLATED_CONTENT,
+            "ai_summary": meeting.AI_SUMMARY,
+            "participants": meeting.PARTICIPANTS,
+            "key_decisions": meeting.KEY_DECISIONS,
+            "next_steps": meeting.NEXT_STEPS,
+            "audio_url": meeting.AUDIO_URL,
+            "summary": {
+                "summary_id": meeting.summaries[0].SUMMARY_ID,
+                "content": meeting.summaries[0].CONTENT,
+                "translated_content": meeting.summaries[0].TRANSLATED_CONTENT,
+                "format": meeting.summaries[0].FORMAT,
+                "created_dt": meeting.summaries[0].CREATED_DT
+            } if meeting.summaries else None,
+            "action_items": [
+                {
+                    "item_id": item.ITEM_ID,
+                    "title": item.TITLE,
+                    "description": item.DESCRIPTION,
+                    "status": item.STATUS,
+                    "priority": item.PRIORITY,
+                    "assignee_id": item.ASSIGNEE_ID,
+                    "due_dt": item.DUE_DT,
+                    "created_dt": item.CREATED_DT,
+                    "updated_dt": item.UPDATED_DT
+                }
+                for item in meeting.action_items
+            ] if meeting.action_items else []
+        }
+        meeting_list.append(meeting_dict)
+    
+    return meeting_list
 
 # ==================== 3. 회의 상세 조회 ====================
 @router.get("/{meeting_id}", response_model=meeting_schema.MeetingOut)
@@ -74,8 +122,13 @@ def get_meeting(
     
     본인이 생성한 회의만 조회할 수 있습니다.
     """
-    # 회의 조회
-    db_meeting = meeting_crud.get_meeting(db=db, meeting_id=meeting_id)
+    # 회의 조회 (요약과 액션 아이템 포함)
+    from sqlalchemy.orm import joinedload
+    
+    db_meeting = db.query(models.Meeting).options(
+        joinedload(models.Meeting.summaries),
+        joinedload(models.Meeting.action_items)
+    ).filter(models.Meeting.MEETING_ID == meeting_id).first()
     
     # 회의가 존재하지 않는 경우
     if not db_meeting:
@@ -91,7 +144,46 @@ def get_meeting(
             detail="본인이 생성한 회의만 조회할 수 있습니다."
         )
     
-    return db_meeting
+    # 요약과 액션 아이템을 dict로 변환
+    meeting_dict = {
+        "meeting_id": db_meeting.MEETING_ID,
+        "creator_id": db_meeting.CREATOR_ID,
+        "title": db_meeting.TITLE,
+        "purpose": db_meeting.PURPOSE,
+        "start_dt": db_meeting.START_DT,
+        "end_dt": db_meeting.END_DT,
+        "location": db_meeting.LOCATION,
+        "content": db_meeting.CONTENT,
+        "translated_content": db_meeting.TRANSLATED_CONTENT,
+        "ai_summary": db_meeting.AI_SUMMARY,
+        "participants": db_meeting.PARTICIPANTS,
+        "key_decisions": db_meeting.KEY_DECISIONS,
+        "next_steps": db_meeting.NEXT_STEPS,
+        "audio_url": db_meeting.AUDIO_URL,
+        "summary": {
+            "summary_id": db_meeting.summaries[0].SUMMARY_ID,
+            "content": db_meeting.summaries[0].CONTENT,
+            "translated_content": db_meeting.summaries[0].TRANSLATED_CONTENT,
+            "format": db_meeting.summaries[0].FORMAT,
+            "created_dt": db_meeting.summaries[0].CREATED_DT
+        } if db_meeting.summaries else None,
+        "action_items": [
+            {
+                "item_id": item.ITEM_ID,
+                "title": item.TITLE,
+                "description": item.DESCRIPTION,
+                "status": item.STATUS,
+                "priority": item.PRIORITY,
+                "assignee_id": item.ASSIGNEE_ID,
+                "due_dt": item.DUE_DT,
+                "created_dt": item.CREATED_DT,
+                "updated_dt": item.UPDATED_DT
+            }
+            for item in db_meeting.action_items
+        ] if db_meeting.action_items else []
+    }
+    
+    return meeting_dict
 
 # ==================== 4. 회의 수정 ====================
 @router.put("/{meeting_id}", response_model=meeting_schema.MeetingOut)
@@ -175,25 +267,26 @@ def delete_meeting(
     # 204 No Content는 본문을 반환하지 않음
     return None
 
-# ==================== 6. 회의 종료 (배치 작업 등록) ====================
-@router.post("/{meeting_id}/end", status_code=status.HTTP_202_ACCEPTED)
-def end_meeting_and_queue_job(
+# ==================== 6. 회의 종료 (LLM 자동 처리) ====================
+@router.post("/{meeting_id}/end", status_code=status.HTTP_200_OK)
+async def end_meeting_and_process(
     meeting_id: str,
     end_request: meeting_schema.MeetingEndRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
     """
-    회의 종료를 요청하고 배치 처리를 위한 RQ Job을 등록합니다.
+    회의 종료를 처리하고 LLM으로 요약 및 액션 아이템을 자동 생성합니다.
     
     - **meeting_id**: 회의 ID (ULID)
     - **status**: 종료 후 회의 상태 (기본값: COMPLETED)
     - **ended_at**: 종료 시각 (선택)
+    - **content**: 회의 전사 내용 (필수)
     
-    회의 종료 시 Pass 2 배치 작업이 자동으로 등록됩니다:
-    1. NCP Object Storage에서 오디오 다운로드
-    2. ElevenLabs로 고품질 전사
-    3. LLM으로 요약 및 액션 아이템 추출
+    회의 종료 시 자동으로 처리됩니다:
+    1. 회의 전사 내용 저장
+    2. LLM으로 요약 생성
+    3. LLM으로 액션 아이템 추출
     """
     # 회의 조회
     db_meeting = meeting_crud.get_meeting(db=db, meeting_id=meeting_id)
@@ -219,16 +312,64 @@ def end_meeting_and_queue_job(
         end_request=end_request
     )
     
-    # TODO: RQ 클라이언트를 사용하여 backend.worker.process_meeting_job(meeting_id) 작업 등록
-    # from backend.worker import queue_meeting_processing
-    # queue_meeting_processing(meeting_id)
+    # LLM으로 요약 및 액션 아이템 생성
+    summary_content = None
+    action_items = []
+    
+    if ended_meeting.CONTENT:
+        try:
+            from backend.core.llm.service import LLMService
+            import ulid
+            
+            llm_service = LLMService()
+            
+            # LLM으로 요약 및 액션 아이템 생성
+            result = await llm_service.get_summary_and_actions([ended_meeting.CONTENT])
+            
+            # 요약 저장
+            if result.get("rolling_summary"):
+                summary = models.Summary(
+                    SUMMARY_ID=str(ulid.new()),
+                    MEETING_ID=meeting_id,
+                    FORMAT="markdown",
+                    CONTENT=result["rolling_summary"]
+                )
+                db.add(summary)
+                summary_content = result["rolling_summary"]
+            
+            # 액션 아이템 저장
+            for item_data in result.get("action_items", []):
+                action_item = models.ActionItem(
+                    ITEM_ID=str(ulid.new()),
+                    MEETING_ID=meeting_id,
+                    TITLE=item_data.get("task", ""),
+                    DESCRIPTION=item_data.get("task", ""),
+                    STATUS="PENDING",
+                    PRIORITY="MEDIUM",
+                    ASSIGNEE_ID=None
+                )
+                db.add(action_item)
+                action_items.append({
+                    "task": item_data.get("task"),
+                    "assignee": item_data.get("assignee"),
+                    "deadline": item_data.get("deadline")
+                })
+            
+            db.commit()
+            
+        except Exception as e:
+            db.rollback()
+            print(f"LLM 처리 오류: {e}")
+            # LLM 처리 실패해도 회의 종료는 성공으로 간주
     
     return {
-        "message": f"회의 종료 요청이 완료되었습니다. (meeting_id: {meeting_id})",
+        "message": f"회의가 종료되었습니다. (meeting_id: {meeting_id})",
         "meeting_id": meeting_id,
-        "status": "배치 작업이 곧 시작됩니다.",
+        "status": "COMPLETED",
         "content": ended_meeting.CONTENT,
-        "audio_url": ended_meeting.AUDIO_URL
+        "audio_url": ended_meeting.AUDIO_URL,
+        "summary": summary_content,
+        "action_items": action_items
     }
 
 # ==================== 7. 회의 오디오 파일 다운로드 ====================

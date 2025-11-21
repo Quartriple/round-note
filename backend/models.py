@@ -83,6 +83,8 @@ class Meeting(Base):
     LOCATION = Column(TEXT, nullable=True)
     # 회의 전사 내용 전체
     CONTENT = Column(TEXT, nullable=True)
+    # 번역된 전사 내용
+    TRANSLATED_CONTENT = Column(TEXT, nullable=True)
     # AI 요약 결과
     AI_SUMMARY = Column(TEXT, nullable=True)
     # 참석자 정보 (JSON 배열)
@@ -171,6 +173,8 @@ class Summary(Base):
     MEETING_ID = Column(TEXT, ForeignKey("MEETING.MEETING_ID"), nullable=False)
     FORMAT = Column(TEXT, nullable=False)
     CONTENT = Column(TEXT, nullable=False)
+    # 번역된 요약 내용
+    TRANSLATED_CONTENT = Column(TEXT, nullable=True)
     PROMPT_ID = Column(TEXT, nullable=True)
     CREATED_DT = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 

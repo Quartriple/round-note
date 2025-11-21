@@ -25,12 +25,17 @@ app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY", "your-s
 
 # 2. CORS 설정
 origins = [
-    os.environ.get("CORS_ORIGIN_LOCAL", "http://localhost:3000"), 
-    os.environ.get("CORS_ORIGIN") # CORS_ORIGIN 환경 변수 사용
+    os.environ.get("CORS_ORIGIN_LOCAL", "http://localhost:3000"),  # 로컬 개발 환경
 ]
+
+# 배포 환경의 CORS_ORIGIN이 설정되어 있으면 추가
+cors_origin = os.environ.get("CORS_ORIGIN")
+if cors_origin:
+    origins.append(cors_origin)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin for origin in origins if origin],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
