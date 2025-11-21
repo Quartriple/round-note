@@ -327,16 +327,18 @@ async def search_meeting_content(
 async def translate_meeting_content(
     meeting_id: str,
     content_type: str,  # "summary" or "transcript"
-    target_lang: str = "en",  # 기본값: 영어
+    source_lang: str = "Korean",  # 원문 언어
+    target_lang: str = "English",  # 목표 언어
     db: Session = Depends(get_db)
 ):
     """
     회의 요약 또는 전사 내용을 번역합니다.
     
     - **content_type**: 번역할 내용 타입 ("summary" 또는 "transcript")
-    - **target_lang**: 목표 언어 (기본값: "en")
+    - **source_lang**: 원문 언어 (기본값: "Korean")
+    - **target_lang**: 목표 언어 (기본값: "English")
     
-    번역 결과는 DB에 저장됩니다.
+    매번 새로 번역하며, DB에는 가장 최근 번역만 캐싱됩니다.
     """
     # 회의 존재 확인
     meeting = db.query(models.Meeting).filter(
@@ -364,26 +366,38 @@ async def translate_meeting_content(
                     detail=f"Summary for meeting {meeting_id} not found"
                 )
             
-            # 이미 번역된 내용이 있으면 반환
-            if summary.TRANSLATED_CONTENT:
+            # 캐시 확인: TRANSLATED_CONTENT에 언어 정보가 포함되어 있는지 확인
+            # 형식: "[target_lang]|translated_text"
+            cached = False
+            if summary.TRANSLATED_CONTENT and summary.TRANSLATED_CONTENT.startswith(f"[{target_lang}]|"):
+                # 캐시된 번역 사용
+                cached_text = summary.TRANSLATED_CONTENT.split("|", 1)[1]
                 return {
                     "meeting_id": meeting_id,
                     "content_type": "summary",
-                    "translated_text": summary.TRANSLATED_CONTENT,
+                    "translated_text": cached_text,
+                    "source_lang": source_lang,
+                    "target_lang": target_lang,
                     "cached": True
                 }
             
-            # LLM으로 번역
-            translated_text = await llm_service.get_translation(summary.CONTENT)
+            # 캐시에 없으면 새로 번역
+            translated_text = await llm_service.get_translation(
+                summary.CONTENT,
+                source_lang=source_lang,
+                target_lang=target_lang
+            )
             
-            # DB에 저장
-            summary.TRANSLATED_CONTENT = translated_text
+            # DB에 저장 (언어 정보 포함)
+            summary.TRANSLATED_CONTENT = f"[{target_lang}]|{translated_text}"
             db.commit()
             
             return {
                 "meeting_id": meeting_id,
                 "content_type": "summary",
                 "translated_text": translated_text,
+                "source_lang": source_lang,
+                "target_lang": target_lang,
                 "cached": False
             }
         
@@ -395,26 +409,37 @@ async def translate_meeting_content(
                     detail=f"No transcript found for meeting {meeting_id}"
                 )
             
-            # 이미 번역된 내용이 있으면 반환
-            if meeting.TRANSLATED_CONTENT:
+            # 캐시 확인: TRANSLATED_CONTENT에 언어 정보가 포함되어 있는지 확인
+            # 형식: "[target_lang]|translated_text"
+            if meeting.TRANSLATED_CONTENT and meeting.TRANSLATED_CONTENT.startswith(f"[{target_lang}]|"):
+                # 캐시된 번역 사용
+                cached_text = meeting.TRANSLATED_CONTENT.split("|", 1)[1]
                 return {
                     "meeting_id": meeting_id,
                     "content_type": "transcript",
-                    "translated_text": meeting.TRANSLATED_CONTENT,
+                    "translated_text": cached_text,
+                    "source_lang": source_lang,
+                    "target_lang": target_lang,
                     "cached": True
                 }
             
-            # LLM으로 번역
-            translated_text = await llm_service.get_translation(meeting.CONTENT)
+            # 캐시에 없으면 새로 번역
+            translated_text = await llm_service.get_translation(
+                meeting.CONTENT,
+                source_lang=source_lang,
+                target_lang=target_lang
+            )
             
-            # DB에 저장
-            meeting.TRANSLATED_CONTENT = translated_text
+            # DB에 저장 (언어 정보 포함)
+            meeting.TRANSLATED_CONTENT = f"[{target_lang}]|{translated_text}"
             db.commit()
             
             return {
                 "meeting_id": meeting_id,
                 "content_type": "transcript",
                 "translated_text": translated_text,
+                "source_lang": source_lang,
+                "target_lang": target_lang,
                 "cached": False
             }
         

@@ -80,25 +80,35 @@ Use Korean for the summary."""
             print(f"LLM Summary Error: {e}")
             return f"[요약 생성 오류: {e}]"
 
-    async def get_translation(self, text: str) -> str:
+    async def get_translation(self, text: str, source_lang: str = "Korean", target_lang: str = "English") -> str:
         """
         실시간으로 텍스트를 번역하는 코어 함수.
-        (streaming_way_DG.py의 translation_thread 로직 재활용)
+        
+        Args:
+            text: 번역할 텍스트
+            source_lang: 원문 언어 (기본값: Korean)
+            target_lang: 대상 언어 (기본값: English)
+        
+        Returns:
+            str: 번역된 텍스트
         """
         if not text.strip():
             return ""
             
         try:
-            # streaming_way_DG.py에서 사용한 모델과 프롬프트 재현
+            # 동적 프롬프트 생성
+            system_prompt = f"You are a highly skilled real-time translator. Translate the following {source_lang} text to {target_lang}. Respond with only the translated text, maintaining the original tone and meaning."
+            
             chat_completion = await self.client.chat.completions.create(
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a highly skilled real-time translator. Translate the following Korean text to English. Respond with only the translated text.",
+                        "content": system_prompt,
                     },
                     {"role": "user", "content": text},
                 ],
                 model="gpt-4o-mini", 
+                temperature=0.3,  # 일관성 있는 번역을 위해 낮은 temperature
             )
             return chat_completion.choices[0].message.content.strip()
         
