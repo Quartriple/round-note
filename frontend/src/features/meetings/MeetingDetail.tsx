@@ -81,10 +81,37 @@ export function MeetingDetail({
 
   // Translation states
   const [summaryLang, setSummaryLang] = useState('ko');
-  const [contentLang, setContentLang] = useState('ko');
+  const [contentLang, setContentLang] = useState(() => {
+    // localStorage에서 마지막 선택 언어 불러오기
+    const savedLang = localStorage.getItem(`meeting-${meeting.id}-content-lang`);
+    return savedLang || 'ko';
+  });
   const [translatedSummary, setTranslatedSummary] = useState('');
   const [translatedContent, setTranslatedContent] = useState('');
   const [isTranslating, setIsTranslating] = useState(false);
+  
+  // 번역 캐시 (언어별로 저장)
+  const [translationCache, setTranslationCache] = useState<{
+    summary: Record<string, string>;
+    content: Record<string, string>;
+  }>({
+    summary: {},
+    content: {}
+  });
+  
+  // 원문 언어 (현재는 한국어로 고정, 추후 설정에서 변경 가능)
+  const sourceLang = 'ko';
+  
+  // 언어 코드 매핑
+  const langMap: Record<string, { code: string; name: string; fullName: string }> = {
+    'ko': { code: 'ko', name: '한국어', fullName: 'Korean' },
+    'en': { code: 'en', name: 'English', fullName: 'English' },
+    'ja': { code: 'ja', name: '日本語', fullName: 'Japanese' },
+    'zh': { code: 'zh', name: '中文', fullName: 'Chinese' },
+    'es': { code: 'es', name: 'Español', fullName: 'Spanish' },
+    'fr': { code: 'fr', name: 'Français', fullName: 'French' },
+    'de': { code: 'de', name: 'Deutsch', fullName: 'German' },
+  };
 
   // Audio states
   const [isPlaying, setIsPlaying] = useState(false);
@@ -109,6 +136,14 @@ export function MeetingDetail({
       setAudioSrc('');
     }
   }, [meeting.id, meeting.audioUrl]);
+
+  // 페이지 로드 시 마지막 선택 언어로 자동 번역
+  useEffect(() => {
+    if (contentLang !== sourceLang && meeting.content) {
+      console.log(`[MeetingDetail] Auto-loading saved language: ${contentLang}`);
+      handleTranslate(meeting.content, contentLang, 'content');
+    }
+  }, []); // 빈 배열로 마운트 시에만 실행
 
   // Scroll to section function
   const scrollToSection = (ref: React.RefObject<HTMLDivElement | null>) => {
@@ -190,14 +225,32 @@ export function MeetingDetail({
   };
 
   const handleTranslate = async (text: string, targetLang: string, type: 'summary' | 'content') => {
+    // 캐시 확인
+    const cacheKey = targetLang;
+    const cachedTranslation = type === 'summary' 
+      ? translationCache.summary[cacheKey] 
+      : translationCache.content[cacheKey];
+    
+    if (cachedTranslation) {
+      console.log(`[MeetingDetail] Using cached translation: ${targetLang}`);
+      if (type === 'summary') {
+        setTranslatedSummary(cachedTranslation);
+      } else {
+        setTranslatedContent(cachedTranslation);
+      }
+      return;
+    }
+    
     setIsTranslating(true);
     
     try {
       // 백엔드 번역 API 호출
       const contentType = type === 'summary' ? 'summary' : 'transcript';
+      const sourceLangFull = langMap[sourceLang]?.fullName || 'Korean';
+      const targetLangFull = langMap[targetLang]?.fullName || 'English';
       
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/reports/${meeting.id}/translate?content_type=${contentType}&target_lang=${targetLang}`,
+        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/reports/${meeting.id}/translate?content_type=${contentType}&source_lang=${sourceLangFull}&target_lang=${targetLangFull}`,
         {
           method: 'POST',
           headers: {
@@ -210,13 +263,22 @@ export function MeetingDetail({
       if (response.ok) {
         const result = await response.json();
         
+        // 캐시에 저장
+        setTranslationCache(prev => ({
+          ...prev,
+          [type]: {
+            ...prev[type],
+            [cacheKey]: result.translated_text
+          }
+        }));
+        
         if (type === 'summary') {
           setTranslatedSummary(result.translated_text);
         } else {
           setTranslatedContent(result.translated_text);
         }
         
-        console.log('[MeetingDetail] Translation completed:', result.cached ? '(cached)' : '(new)');
+        console.log(`[MeetingDetail] Translation completed: ${sourceLangFull} → ${targetLangFull} (cached)`);
       } else {
         const error = await response.json().catch(() => ({ detail: 'Translation failed' }));
         console.error('[MeetingDetail] Translation error:', error);
@@ -668,11 +730,21 @@ export function MeetingDetail({
                       회의 원문
                     </CardTitle>
                     <div className="flex items-center gap-2">
+                      {/* 원문 언어 (Static) */}
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md text-sm font-medium border border-gray-200">
+                        <Mic className="w-3.5 h-3.5" />
+                        <span>{langMap[sourceLang]?.name}</span>
+                      </div>
+                      
+                      {/* 번역 언어 선택 (Clickable Toggle) */}
                       <Select
                         value={contentLang}
                         onValueChange={(lang) => {
                           setContentLang(lang);
-                          if (lang !== 'ko') {
+                          // localStorage에 선택 언어 저장
+                          localStorage.setItem(`meeting-${meeting.id}-content-lang`, lang);
+                          
+                          if (lang !== sourceLang) {
                             handleTranslate(meeting.content, lang, 'content');
                           } else {
                             setTranslatedContent('');
@@ -684,12 +756,18 @@ export function MeetingDetail({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="ko">한국어</SelectItem>
+                          <SelectItem value="ko">
+                            <span className="font-medium">원문 보기</span>
+                          </SelectItem>
                           <SelectItem value="en">English</SelectItem>
                           <SelectItem value="ja">日本語</SelectItem>
                           <SelectItem value="zh">中文</SelectItem>
+                          <SelectItem value="es">Español</SelectItem>
+                          <SelectItem value="fr">Français</SelectItem>
+                          <SelectItem value="de">Deutsch</SelectItem>
                         </SelectContent>
                       </Select>
+                      
                       <CollapsibleTrigger asChild>
                         <Button variant="ghost" size="sm">
                           {contentOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -700,12 +778,25 @@ export function MeetingDetail({
                 </CardHeader>
                 <CollapsibleContent>
                   <CardContent>
-                    {isTranslating && contentLang !== 'ko' ? (
-                      <div className="text-center py-4 text-gray-500">번역 중...</div>
+                    {isTranslating && contentLang !== sourceLang ? (
+                      <div className="text-center py-8 text-gray-500">
+                        <div className="inline-flex items-center gap-2">
+                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                          <span>{langMap[sourceLang]?.name} → {langMap[contentLang]?.name} 번역 중...</span>
+                        </div>
+                      </div>
                     ) : (
                       <div className="bg-gray-50 rounded-lg p-4 max-h-[500px] overflow-y-auto">
+                        {contentLang !== sourceLang && (
+                          <div className="mb-3 pb-2 border-b border-gray-300 text-xs text-gray-500">
+                            <span className="inline-flex items-center gap-1">
+                              <Languages className="w-3 h-3" />
+                              번역됨: {langMap[sourceLang]?.name} → {langMap[contentLang]?.name}
+                            </span>
+                          </div>
+                        )}
                         <p className="whitespace-pre-wrap text-gray-700">
-                          {contentLang === 'ko' ? meeting.content : translatedContent || meeting.content}
+                          {contentLang === sourceLang ? meeting.content : translatedContent || meeting.content}
                         </p>
                       </div>
                     )}

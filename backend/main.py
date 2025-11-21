@@ -13,6 +13,7 @@ from backend.api.v1.health_check.endpoints import router as health_router
 from backend.api.v1.auth.endpoints import router as auth_router
 from backend.api.v1.meetings.endpoints import router as meetings_router
 from backend.api.v1.realtime.endpoints import router as realtime_router
+from backend.api.v1.reports.endpoints import router as reports_router
 
 
 load_dotenv()
@@ -46,7 +47,7 @@ app.include_router(health_router, prefix="/api/v1/health-check", tags=["Health"]
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(meetings_router, prefix="/api/v1/meetings", tags=["Meetings"])
 app.include_router(realtime_router, prefix="/api/v1/realtime", tags=["Realtime"])
-# TODO: (팀원 A) 추후 보고서(Report) 조회 API 필요 시 라우터 추가
+app.include_router(reports_router, prefix="/api/v1", tags=["Reports"])
 
 
 @app.get("/")
