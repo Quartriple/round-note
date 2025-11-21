@@ -37,6 +37,7 @@ psycopg2==2.9.11
 pyasn1==0.6.1
 pycparser==2.23
 pydantic==2.12.4
+python-multipart==0.0.18
 pydantic_core==2.41.5
 python-dateutil==2.6.1
 python-dotenv==1.2.1

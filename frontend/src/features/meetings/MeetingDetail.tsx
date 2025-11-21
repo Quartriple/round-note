@@ -88,7 +88,27 @@ export function MeetingDetail({
 
   // Audio states
   const [isPlaying, setIsPlaying] = useState(false);
+  const [audioSrc, setAudioSrc] = useState('');
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+
+  // Set audio src with token on mount and when audioUrl changes
+  useEffect(() => {
+    if (meeting.audioUrl && meeting.audioUrl.trim() !== '') {
+      const token = localStorage.getItem('access_token');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const fullAudioUrl = `${apiUrl}/api/v1/meetings/${meeting.id}/audio?token=${token}`;
+      console.log('[MeetingDetail] Setting audio URL:', fullAudioUrl);
+      setAudioSrc(fullAudioUrl);
+      
+      // 오디오 엘리먼트가 있으면 강제로 로드
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.load();
+      }
+    } else {
+      console.log('[MeetingDetail] No audio URL available:', meeting.audioUrl);
+      setAudioSrc('');
+    }
+  }, [meeting.id, meeting.audioUrl]);
 
   // Scroll to section function
   const scrollToSection = (ref: React.RefObject<HTMLDivElement | null>) => {
@@ -202,13 +222,37 @@ export function MeetingDetail({
     setIsPlaying(!isPlaying);
   };
 
-  const handleAudioDownload = () => {
-    // Mock audio download
-    if (meeting.audioUrl) {
+  const handleAudioDownload = async () => {
+    if (!audioSrc) {
+      console.error('[MeetingDetail] No audio source available');
+      alert('오디오 파일을 사용할 수 없습니다.');
+      return;
+    }
+    
+    try {
+      console.log('[MeetingDetail] Downloading from:', audioSrc);
+      const response = await fetch(audioSrc);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const blob = await response.blob();
+      console.log('[MeetingDetail] Downloaded blob:', blob.size, 'bytes');
+      
+      const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = meeting.audioUrl;
-      link.download = `${meeting.title}_audio.mp3`;
+      link.href = url;
+      link.download = `${meeting.title}_audio.wav`;
+      document.body.appendChild(link);
       link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      console.log('[MeetingDetail] Download completed');
+    } catch (error) {
+      console.error('[MeetingDetail] Download failed:', error);
+      alert(`오디오 파일 다운로드에 실패했습니다: ${error}`);
     }
   };
 
@@ -670,36 +714,37 @@ export function MeetingDetail({
                 </CardHeader>
                 <CollapsibleContent>
                   <CardContent>
-                    {meeting.audioUrl ? (
+                    {meeting.audioUrl && meeting.audioUrl.trim() !== '' ? (
                       <div className="space-y-4">
-                        <div className="bg-gray-50 rounded-lg p-4">
-                          <div className="flex items-center justify-between mb-4">
-                            <div className="flex items-center gap-3">
-                              <div className="text-sm text-gray-600">
-                                <span className="font-medium">{meeting.title}</span> 녹음 파일
-                              </div>
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="text-sm text-gray-600">
+                              <span className="font-medium">{meeting.title}</span> 녹음 파일
                             </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={handleAudioDownload}
-                              className="gap-2"
-                            >
-                              <Download className="w-4 h-4" />
-                              다운로드
-                            </Button>
                           </div>
-                          <audio
-                            ref={audioPlayerRef}
-                            src={meeting.audioUrl}
-                            controls
-                            className="w-full"
-                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleAudioDownload}
+                            className="gap-2"
+                          >
+                            <Download className="w-4 h-4" />
+                            다운로드
+                          </Button>
                         </div>
-                        <p className="text-xs text-gray-500">
-                          * 회의 중 녹음된 원본 오디오 파일입니다. 재생 또는 다운로드하여 다시 들을 수 있습니다.
-                        </p>
+                        <audio
+                          ref={audioPlayerRef}
+                          {...(audioSrc && { src: audioSrc })}
+                          controls
+                          className="w-full"
+                          onError={(e) => console.error('[MeetingDetail] Audio load error:', e)}
+                        />
                       </div>
+                      <p className="text-xs text-gray-500">
+                        * 회의 중 녹음된 원본 오디오 파일입니다. 재생 또는 다운로드하여 다시 들을 수 있습니다.
+                      </p>
+                    </div>
                     ) : (
                       <div className="text-center py-8 text-gray-500">
                         <Volume2 className="w-12 h-12 mx-auto mb-2 text-gray-300" />

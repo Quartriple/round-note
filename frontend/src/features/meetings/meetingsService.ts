@@ -47,6 +47,8 @@ export interface UpdateMeetingRequest {
 export interface EndMeetingRequest {
   status?: string;
   ended_at?: string;
+  content?: string;
+  audio_url?: string;
 }
 
 /**
@@ -137,7 +139,7 @@ export const deleteMeeting = async (meetingId: string): Promise<void> => {
 /**
  * 회의 종료
  */
-export const endMeeting = async (meetingId: string, data?: EndMeetingRequest): Promise<{ message: string; meeting_id: string; status: string }> => {
+export const endMeeting = async (meetingId: string, data?: EndMeetingRequest): Promise<{ message: string; meeting_id: string; status: string; end_dt?: string }> => {
   const response = await fetch(`${API_URL}/api/v1/meetings/${meetingId}/end`, {
     method: 'POST',
     headers: getHeaders(),
