@@ -10,20 +10,17 @@ function LoginHandler({ children }: { children: React.ReactNode }) {
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    // 이미 로그인되어 있는지 확인
-    const existingToken = localStorage.getItem('access_token');
-    if (existingToken) {
-      router.replace("/main");
-      return;
+    // Google OAuth는 백엔드에서 자동으로 Cookie를 설정하고 리다이렉트함
+    // 이미 로그인되어 있는지 확인 (선택적)
+    async function checkExistingAuth() {
+      const { checkAuth } = await import('@/utils/auth');
+      const user = await checkAuth();
+      if (user) {
+        router.replace("/main");
+      }
     }
-
-    // Google OAuth 콜백에서 토큰을 받았는지 확인
-    const token = searchParams.get('token');
-    if (token) {
-      localStorage.setItem('access_token', token);
-      alert("Google 로그인에 성공하였습니다.");
-      router.push("/main");
-    }
+    
+    checkExistingAuth();
   }, [searchParams, router]);
 
   return <>{children}</>;

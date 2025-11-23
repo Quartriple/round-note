@@ -665,7 +665,7 @@ logger.error("LLM 요약 오류: %s", str(e))
 - [x] **추가 인증 기능**
   - [x] GET /auth/me (JWT 토큰 기반 현재 사용자 정보)
   - [x] POST /auth/logout (로그아웃 처리)
-  - [ ] 보안 개선 (localStorage → httpOnly Cookie)
+  - [x] 보안 개선 (localStorage → httpOnly Cookie)
 
 - [ ] **회의 저장 통합**
   - [ ] 회의 종료 시 전사 내용(CONTENT), AI 분석(AI_SUMMARY) DB 저장
@@ -683,7 +683,7 @@ logger.error("LLM 요약 오류: %s", str(e))
 
 ### 2️⃣ 권현재 (팀장) - 병렬 진행 (우선순위순)
 
-**Phase 2A (1-2일) - 즉시 병렬 (김기찬 기다리지 말 것)**
+**Phase 2A (1-2일)**
 
 - [x] **Meeting/Summary/ActionItem CRUD 완성**
   - [x] `crud/meeting.py` - create_meeting, get_meeting, list_meetings, update_meeting, delete_meeting

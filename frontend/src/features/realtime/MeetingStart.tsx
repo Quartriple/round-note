@@ -52,14 +52,11 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
         const formData = new FormData();
         formData.append('file', aiAnalysis.audioBlob, `${meetingData.meeting_id}.wav`);
         
-        const token = localStorage.getItem('access_token');
         const uploadResponse = await fetch(
           `${process.env.NEXT_PUBLIC_API_URL}/api/v1/meetings/${meetingData.meeting_id}/audio`,
           {
             method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-            },
+            credentials: 'include', // httpOnly Cookie 전송
             body: formData,
           }
         );
@@ -140,7 +137,6 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
     };
 
     // 5. 백엔드 API 호출: 회의 종료 + LLM 요약/액션아이템 자동 생성
-    const token = localStorage.getItem('access_token');
     let summary = '';
     let actionItems: any[] = [];
     let audioUrl = '';    try {
@@ -150,8 +146,8 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
           },
+          credentials: 'include', // httpOnly Cookie 전송
           body: JSON.stringify({
             status: 'COMPLETED',
             ended_at: new Date().toISOString(),
@@ -289,9 +285,7 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
           `${process.env.NEXT_PUBLIC_API_URL}/api/v1/meetings/${meetingData.meeting_id}`,
           {
             method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-            },
+            credentials: 'include', // httpOnly Cookie 전송
           }
         );
         

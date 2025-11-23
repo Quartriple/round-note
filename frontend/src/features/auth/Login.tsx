@@ -36,13 +36,14 @@ export function Login({ onLogin, onShowRegister }: LoginProps) {
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include', // httpOnly Cookie를 받기 위해 필요
         body: JSON.stringify({ email, password }),
       });
 
       if (response.ok) {
         const data = await response.json();
-        // TODO: 나중에 localStorage -> Cookie로 변경.
-        localStorage.setItem('access_token', data.access_token);
+        console.log('로그인 성공:', data.message);
+        // 토큰은 httpOnly Cookie에 저장되므로 localStorage 사용 안 함
         onLogin();
       } else {
         setError('로그인 실패: 서버 응답을 확인해주세요.');

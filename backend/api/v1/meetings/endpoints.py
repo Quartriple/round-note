@@ -376,45 +376,18 @@ async def end_meeting_and_process(
 @router.get("/{meeting_id}/audio")
 async def get_meeting_audio(
     meeting_id: str,
-    token: str = None,  # 쿼리 파라미터로 토큰 전달 가능
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)  # httpOnly Cookie 인증
 ):
     """
     회의의 오디오 파일을 다운로드합니다.
     
     - **meeting_id**: 회의 ID (ULID)
-    - **token**: JWT 토큰 (쿼리 파라미터로 전달)
     
     본인이 생성한 회의의 오디오 파일만 다운로드할 수 있습니다.
+    httpOnly Cookie를 통한 인증이 필요합니다.
     """
-    # 쿼리 파라미터로 전달된 토큰으로 사용자 인증
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="인증 토큰이 필요합니다."
-        )
-    
-    try:
-        from backend.core.auth.security import verify_token
-        payload = verify_token(token)
-        if not payload:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="유효하지 않은 토큰입니다."
-            )
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="토큰에서 사용자 ID를 찾을 수 없습니다."
-            )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"토큰 검증 오류: {str(e)}"
-        )
+    user_id = current_user.USER_ID
     
     # 회의 조회
     db_meeting = meeting_crud.get_meeting(db=db, meeting_id=meeting_id)
