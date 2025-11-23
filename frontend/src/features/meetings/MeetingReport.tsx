@@ -1,13 +1,15 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/card';
 import { Button } from '@/shared/ui/button';
-import { Download, FileBarChart, Calendar, Users, Target, CheckCircle2, Clock, TrendingUp } from 'lucide-react';
+import { Download, FileBarChart, Calendar, Users, Target, CheckCircle2, Clock, TrendingUp, ExternalLink, ListChecks } from 'lucide-react';
 import type { Meeting } from '@/features/dashboard/Dashboard';
+import { toast } from 'sonner';
 
 interface MeetingReportProps {
   meeting: Meeting;
+  showExports?: boolean;
 }
 
-export function MeetingReport({ meeting }: MeetingReportProps) {
+export function MeetingReport({ meeting, showExports = true }: MeetingReportProps) {
   const generateReportData = () => {
     const totalItems = meeting.actionItems.length;
     const completedItems = meeting.actionItems.filter(a => a.completed).length;
@@ -124,10 +126,30 @@ ${meeting.content}
           <FileBarChart className="w-6 h-6 text-blue-600" />
           <h3 className="text-blue-600">회의 리포트</h3>
         </div>
-        <Button onClick={handleDownloadReport} className="gap-2">
-          <Download className="w-4 h-4" />
-          리포트 다운로드
-        </Button>
+        {showExports && (
+          <div className="flex gap-2">
+            <Button onClick={handleDownloadReport} className="gap-2">
+              <Download className="w-4 h-4" />
+              리포트 다운로드
+            </Button>
+            <Button
+              onClick={async () => {
+                try {
+                  const { exportMeetingToNotion } = await import('@/features/meetings/integrations');
+                  await exportMeetingToNotion(meeting);
+                } catch (e) {
+                  console.error(e);
+                  toast.error('Notion 연동 중 오류가 발생했습니다.');
+                }
+              }}
+              variant="outline"
+              className="gap-2"
+            >
+              <ExternalLink className="w-4 h-4" />
+              Notion으로 전송
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Executive Summary */}
@@ -189,105 +211,54 @@ ${meeting.content}
         </CardContent>
       </Card>
 
-      {/* Participants Performance */}
-      {reportData.itemsPerPerson.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="w-5 h-5" />
-              참여자별 진행 현황
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {reportData.itemsPerPerson.map((person, index) => (
-                <div key={index} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span>{person.name}</span>
-                    <span className="text-sm text-gray-600">
-                      {person.completed}/{person.total} ({person.completionRate}%)
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all"
-                      style={{ width: `${person.completionRate}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Overdue Tasks Warning */}
-      {reportData.overdueTasks > 0 && (
-        <Card className="border-orange-200 bg-orange-50">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-orange-700">
-              <Clock className="w-5 h-5" />
-              마감 지연 알림
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-orange-800">
-              현재 {reportData.overdueTasks}개의 액션 아이템이 마감일을 초과했습니다.
-              담당자에게 확인이 필요합니다.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Progress Chart */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <TrendingUp className="w-5 h-5" />
-            진행 상황
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div>
-              <div className="flex justify-between mb-2">
-                <span className="text-sm text-gray-600">완료</span>
-                <span className="text-sm">{reportData.completedItems}개</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-3">
-                <div
-                  className="bg-green-500 h-3 rounded-full"
-                  style={{
-                    width: `${reportData.totalItems > 0 ? (reportData.completedItems / reportData.totalItems) * 100 : 0}%`,
-                  }}
-                />
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between mb-2">
-                <span className="text-sm text-gray-600">진행 중</span>
-                <span className="text-sm">{reportData.pendingItems}개</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-3">
-                <div
-                  className="bg-orange-500 h-3 rounded-full"
-                  style={{
-                    width: `${reportData.totalItems > 0 ? (reportData.pendingItems / reportData.totalItems) * 100 : 0}%`,
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Summary Text */}
+      {/* Meeting Summary (회의요약) */}
       <Card>
         <CardHeader>
           <CardTitle>회의 요약</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="whitespace-pre-wrap text-gray-700">{meeting.summary}</p>
+        </CardContent>
+      </Card>
+
+      {/* Action Items List */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ListChecks className="w-5 h-5" />
+            액션 아이템 리스트
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {meeting.actionItems.length === 0 ? (
+            <p className="text-gray-500 text-center py-8">액션 아이템이 없습니다</p>
+          ) : (
+            <div className="space-y-3">
+              {meeting.actionItems.map((item, idx) => (
+                <div key={item.id || idx} className="p-3 border rounded-lg">
+                  <div className="flex justify-between items-start">
+                    <div className="text-sm text-gray-900">{item.text}</div>
+                    <div className="text-xs text-gray-500 text-right">
+                      <div>{item.assignee || '미정'}</div>
+                      <div>{item.dueDate || '마감일 미정'}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Full Meeting Content (회의 원문) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>회의 원문</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="bg-gray-50 rounded-lg p-4 max-h-[500px] overflow-y-auto">
+            <p className="whitespace-pre-wrap text-gray-700">{meeting.content}</p>
+          </div>
         </CardContent>
       </Card>
     </div>
