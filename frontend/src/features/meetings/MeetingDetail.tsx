@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   ListChecks,
   Download,
+  ExternalLink,
   Trash2,
   ArrowLeft,
   MoreVertical,
@@ -372,6 +373,25 @@ export function MeetingDetail({
               <Download className="w-4 h-4" />
               Word
             </Button>
+            {activeTab !== 'analysis' && activeTab !== 'basic' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const { exportMeetingToNotion } = await import('@/features/meetings/integrations');
+                    await exportMeetingToNotion(meeting);
+                  } catch (e) {
+                    console.error(e);
+                    alert('Notion 연동 중 오류가 발생했습니다.');
+                  }
+                }}
+                className="gap-2"
+              >
+                <ExternalLink className="w-4 h-4" />
+                Notion으로 전송
+              </Button>
+            )}
             <Button variant="destructive" size="sm" onClick={handleDelete} className="gap-2">
               <Trash2 className="w-4 h-4" />
               삭제
@@ -386,14 +406,18 @@ export function MeetingDetail({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleExportPDF}>
-                <Download className="w-4 h-4 mr-2" />
-                PDF로 내보내기
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleExportWord}>
-                <FileDown className="w-4 h-4 mr-2" />
-                Word로 내보내기
-              </DropdownMenuItem>
+              {activeTab !== 'analysis' && (
+                <>
+                  <DropdownMenuItem onClick={handleExportPDF}>
+                    <Download className="w-4 h-4 mr-2" />
+                    PDF로 내보내기
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportWord}>
+                    <FileDown className="w-4 h-4 mr-2" />
+                    Word로 내보내기
+                  </DropdownMenuItem>
+                </>
+              )}
               <DropdownMenuItem onClick={handleDelete} className="text-red-600">
                 <Trash2 className="w-4 h-4 mr-2" />
                 회의록 삭제
