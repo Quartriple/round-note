@@ -24,12 +24,21 @@ function float32ToInt16(float32Array: Float32Array): Int16Array {
     return int16Array;
 }
 
+interface TimelineSummary {
+    sequence: number;
+    timeWindow: string;
+    content: string;
+    timestamp: number;
+}
+
 interface RealtimeStreamControls {
     isRecording: boolean;
     isPaused: boolean;
     transcript: string;
     partialText: string;
     translation: string;
+    timelineSummaries: TimelineSummary[];
+    isGeneratingSummary: boolean;
     startRecording: () => Promise<void>;
     stopRecording: () => void;
     pauseRecording: () => void;
@@ -44,6 +53,8 @@ const useRealtimeStream = (): RealtimeStreamControls => {
     const [transcript, setTranscript] = useState<string>('');
     const [partialText, setPartialText] = useState<string>('');
     const [translation, setTranslation] = useState<string>('');
+    const [timelineSummaries, setTimelineSummaries] = useState<TimelineSummary[]>([]);
+    const [isGeneratingSummary, setIsGeneratingSummary] = useState<boolean>(false);
 
     // 2. Mutable 객체 참조
     const wsRef = useRef<WebSocket | null>(null); 
@@ -240,7 +251,7 @@ const useRealtimeStream = (): RealtimeStreamControls => {
         }
 
         try {
-            const wsUrl = WS_URL + "?translate=true";
+            const wsUrl = WS_URL + "?translate=true&summary=true";
             console.log("WebSocket 연결 시도:", wsUrl);
             console.log("환경변수 API_URL:", process.env.NEXT_PUBLIC_API_URL);
             
@@ -298,6 +309,27 @@ const useRealtimeStream = (): RealtimeStreamControls => {
                         case 'translation':
                             console.log("번역 결과:", message.translated_text);
                             setTranslation(message.translated_text);
+                            break;
+                            
+                        case 'summary_generating':
+                            console.log("요약 생성 시작:", message.sequence);
+                            setIsGeneratingSummary(true);
+                            break;
+                            
+                        case 'timeline_summary':
+                            console.log("타임라인 요약 수신:", message.sequence, message.time_window);
+                            setTimelineSummaries(prev => [...prev, {
+                                sequence: message.sequence,
+                                timeWindow: message.time_window,
+                                content: message.content,
+                                timestamp: message.timestamp
+                            }]);
+                            setIsGeneratingSummary(false);
+                            break;
+                            
+                        case 'summary_error':
+                            console.error("요약 생성 오류:", message.message);
+                            setIsGeneratingSummary(false);
                             break;
                             
                         case 'error':
@@ -476,6 +508,8 @@ const useRealtimeStream = (): RealtimeStreamControls => {
         transcript,
         partialText,
         translation,
+        timelineSummaries,
+        isGeneratingSummary,
         startRecording,
         stopRecording,
         pauseRecording,
