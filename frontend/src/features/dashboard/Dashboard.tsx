@@ -83,21 +83,32 @@ export default function Dashboard() {
 
         if (response.ok) {
           const data = await response.json();
+          console.log('[Dashboard] Fetched meetings from backend:', data);
+          
           // 백엔드 응답을 프론트엔드 Meeting 타입으로 변환
           const mappedMeetings: Meeting[] = data.map((m: any) => ({
             id: m.meeting_id,
-            title: m.title,
+            title: m.title || '제목 없음',
             date: m.start_dt?.split('T')[0] || new Date().toISOString().split('T')[0],
-            content: '', // TODO: 백엔드에 content 필드 추가 필요
-            summary: m.purpose || '',
-            actionItems: [], // TODO: 백엔드에서 action items 가져오기
+            content: m.content || '',
+            summary: m.summary?.content || m.ai_summary || m.purpose || '',
+            actionItems: (m.action_items || []).map((item: any) => ({
+              id: item.item_id,
+              text: item.title || item.description || '',
+              assignee: item.assignee_id || '미정',
+              dueDate: item.due_dt ? new Date(item.due_dt).toISOString().split('T')[0] : '',
+              completed: item.status === 'DONE',
+              priority: item.priority?.toLowerCase() || 'medium'
+            })),
             createdAt: m.start_dt || new Date().toISOString(),
             updatedAt: m.end_dt || new Date().toISOString(),
-            participants: [],
-            keyDecisions: [],
-            nextSteps: [],
-            audioUrl: ''
+            participants: m.participants || [],
+            keyDecisions: m.key_decisions || [],
+            nextSteps: m.next_steps || [],
+            audioUrl: m.audio_url || ''
           }));
+          
+          console.log('[Dashboard] Mapped meetings:', mappedMeetings);
           setMeetings(mappedMeetings);
         }
       } catch (error) {
@@ -117,6 +128,8 @@ export default function Dashboard() {
   }, [meetings]);
 
   const handleAddMeeting = (meeting: Meeting) => {
+    console.log('[Dashboard] Adding meeting:', meeting);
+    console.log('[Dashboard] Meeting audioUrl:', meeting.audioUrl);
     setMeetings([meeting, ...meetings]);
     setActiveSection("history");
   };

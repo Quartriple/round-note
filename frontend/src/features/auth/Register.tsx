@@ -76,15 +76,11 @@ export function Register({ onRegister, onBackToLogin }: RegisterProps) {
       });
 
       if (response.ok) {
-        const data = await response.json();
-        // JWT 토큰 저장
-        localStorage.setItem('access_token', data.access_token);
-        toast.success('회원가입이 완료되었습니다!');
-        
-        // 메인 페이지로 이동 (토큰이 이미 저장되어 있으므로 자동 로그인됨)
+        // 성공 안내 후 로그인 페이지로 이동시키기 (자동 로그인하지 않음)
+        toast.success('회원가입이 완료되었습니다. 로그인 페이지로 이동합니다.');
         setTimeout(() => {
-          onRegister();
-        }, 1000);
+          onBackToLogin();
+        }, 800);
       } else {
         const errorData = await response.json();
         setError(errorData.detail || '회원가입에 실패했습니다.');

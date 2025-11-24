@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   ListChecks,
   Download,
+  ExternalLink,
   Trash2,
   ArrowLeft,
   MoreVertical,
@@ -81,14 +82,69 @@ export function MeetingDetail({
 
   // Translation states
   const [summaryLang, setSummaryLang] = useState('ko');
-  const [contentLang, setContentLang] = useState('ko');
+  const [contentLang, setContentLang] = useState(() => {
+    // localStorage에서 마지막 선택 언어 불러오기
+    const savedLang = localStorage.getItem(`meeting-${meeting.id}-content-lang`);
+    return savedLang || 'ko';
+  });
   const [translatedSummary, setTranslatedSummary] = useState('');
   const [translatedContent, setTranslatedContent] = useState('');
   const [isTranslating, setIsTranslating] = useState(false);
+  
+  // 번역 캐시 (언어별로 저장)
+  const [translationCache, setTranslationCache] = useState<{
+    summary: Record<string, string>;
+    content: Record<string, string>;
+  }>({
+    summary: {},
+    content: {}
+  });
+  
+  // 원문 언어 (현재는 한국어로 고정, 추후 설정에서 변경 가능)
+  const sourceLang = 'ko';
+  
+  // 언어 코드 매핑
+  const langMap: Record<string, { code: string; name: string; fullName: string }> = {
+    'ko': { code: 'ko', name: '한국어', fullName: 'Korean' },
+    'en': { code: 'en', name: 'English', fullName: 'English' },
+    'ja': { code: 'ja', name: '日本語', fullName: 'Japanese' },
+    'zh': { code: 'zh', name: '中文', fullName: 'Chinese' },
+    'es': { code: 'es', name: 'Español', fullName: 'Spanish' },
+    'fr': { code: 'fr', name: 'Français', fullName: 'French' },
+    'de': { code: 'de', name: 'Deutsch', fullName: 'German' },
+  };
 
   // Audio states
   const [isPlaying, setIsPlaying] = useState(false);
+  const [audioSrc, setAudioSrc] = useState('');
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+
+  // Set audio src with token on mount and when audioUrl changes
+  useEffect(() => {
+    if (meeting.audioUrl && meeting.audioUrl.trim() !== '') {
+      const token = localStorage.getItem('access_token');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const fullAudioUrl = `${apiUrl}/api/v1/meetings/${meeting.id}/audio?token=${token}`;
+      console.log('[MeetingDetail] Setting audio URL:', fullAudioUrl);
+      setAudioSrc(fullAudioUrl);
+      
+      // 오디오 엘리먼트가 있으면 강제로 로드
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.load();
+      }
+    } else {
+      console.log('[MeetingDetail] No audio URL available:', meeting.audioUrl);
+      setAudioSrc('');
+    }
+  }, [meeting.id, meeting.audioUrl]);
+
+  // 페이지 로드 시 마지막 선택 언어로 자동 번역
+  useEffect(() => {
+    if (contentLang !== sourceLang && meeting.content) {
+      console.log(`[MeetingDetail] Auto-loading saved language: ${contentLang}`);
+      handleTranslate(meeting.content, contentLang, 'content');
+    }
+  }, []); // 빈 배열로 마운트 시에만 실행
 
   // Scroll to section function
   const scrollToSection = (ref: React.RefObject<HTMLDivElement | null>) => {
@@ -170,21 +226,68 @@ export function MeetingDetail({
   };
 
   const handleTranslate = async (text: string, targetLang: string, type: 'summary' | 'content') => {
+    // 캐시 확인
+    const cacheKey = targetLang;
+    const cachedTranslation = type === 'summary' 
+      ? translationCache.summary[cacheKey] 
+      : translationCache.content[cacheKey];
+    
+    if (cachedTranslation) {
+      console.log(`[MeetingDetail] Using cached translation: ${targetLang}`);
+      if (type === 'summary') {
+        setTranslatedSummary(cachedTranslation);
+      } else {
+        setTranslatedContent(cachedTranslation);
+      }
+      return;
+    }
+    
     setIsTranslating(true);
     
-    // Mock translation - 실제로는 번역 API를 호출해야 합니다
-    // 예: Google Translate API, DeepL API 등
     try {
-      // Placeholder: 실제 번역 API 호출이 필요합니다
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // 백엔드 번역 API 호출
+      const contentType = type === 'summary' ? 'summary' : 'transcript';
+      const sourceLangFull = langMap[sourceLang]?.fullName || 'Korean';
+      const targetLangFull = langMap[targetLang]?.fullName || 'English';
       
-      if (type === 'summary') {
-        setTranslatedSummary(`[${targetLang.toUpperCase()}로 번역됨]\n${text}`);
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/reports/${meeting.id}/translate?content_type=${contentType}&source_lang=${sourceLangFull}&target_lang=${targetLangFull}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          },
+        }
+      );
+      
+      if (response.ok) {
+        const result = await response.json();
+        
+        // 캐시에 저장
+        setTranslationCache(prev => ({
+          ...prev,
+          [type]: {
+            ...prev[type],
+            [cacheKey]: result.translated_text
+          }
+        }));
+        
+        if (type === 'summary') {
+          setTranslatedSummary(result.translated_text);
+        } else {
+          setTranslatedContent(result.translated_text);
+        }
+        
+        console.log(`[MeetingDetail] Translation completed: ${sourceLangFull} → ${targetLangFull} (cached)`);
       } else {
-        setTranslatedContent(`[${targetLang.toUpperCase()}로 번역됨]\n${text}`);
+        const error = await response.json().catch(() => ({ detail: 'Translation failed' }));
+        console.error('[MeetingDetail] Translation error:', error);
+        alert(`번역 실패: ${error.detail || '알 수 없는 오류'}`);
       }
     } catch (error) {
-      console.error('Translation error:', error);
+      console.error('[MeetingDetail] Translation error:', error);
+      alert('번역 중 오류가 발생했습니다.');
     } finally {
       setIsTranslating(false);
     }
@@ -202,13 +305,37 @@ export function MeetingDetail({
     setIsPlaying(!isPlaying);
   };
 
-  const handleAudioDownload = () => {
-    // Mock audio download
-    if (meeting.audioUrl) {
+  const handleAudioDownload = async () => {
+    if (!audioSrc) {
+      console.error('[MeetingDetail] No audio source available');
+      alert('오디오 파일을 사용할 수 없습니다.');
+      return;
+    }
+    
+    try {
+      console.log('[MeetingDetail] Downloading from:', audioSrc);
+      const response = await fetch(audioSrc);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const blob = await response.blob();
+      console.log('[MeetingDetail] Downloaded blob:', blob.size, 'bytes');
+      
+      const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = meeting.audioUrl;
-      link.download = `${meeting.title}_audio.mp3`;
+      link.href = url;
+      link.download = `${meeting.title}_audio.wav`;
+      document.body.appendChild(link);
       link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      console.log('[MeetingDetail] Download completed');
+    } catch (error) {
+      console.error('[MeetingDetail] Download failed:', error);
+      alert(`오디오 파일 다운로드에 실패했습니다: ${error}`);
     }
   };
 
@@ -246,6 +373,25 @@ export function MeetingDetail({
               <Download className="w-4 h-4" />
               Word
             </Button>
+            {activeTab !== 'analysis' && activeTab !== 'basic' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const { exportMeetingToNotion } = await import('@/features/meetings/integrations');
+                    await exportMeetingToNotion(meeting);
+                  } catch (e) {
+                    console.error(e);
+                    alert('Notion 연동 중 오류가 발생했습니다.');
+                  }
+                }}
+                className="gap-2"
+              >
+                <ExternalLink className="w-4 h-4" />
+                Notion으로 전송
+              </Button>
+            )}
             <Button variant="destructive" size="sm" onClick={handleDelete} className="gap-2">
               <Trash2 className="w-4 h-4" />
               삭제
@@ -260,14 +406,18 @@ export function MeetingDetail({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleExportPDF}>
-                <Download className="w-4 h-4 mr-2" />
-                PDF로 내보내기
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleExportWord}>
-                <FileDown className="w-4 h-4 mr-2" />
-                Word로 내보내기
-              </DropdownMenuItem>
+              {activeTab !== 'analysis' && (
+                <>
+                  <DropdownMenuItem onClick={handleExportPDF}>
+                    <Download className="w-4 h-4 mr-2" />
+                    PDF로 내보내기
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportWord}>
+                    <FileDown className="w-4 h-4 mr-2" />
+                    Word로 내보내기
+                  </DropdownMenuItem>
+                </>
+              )}
               <DropdownMenuItem onClick={handleDelete} className="text-red-600">
                 <Trash2 className="w-4 h-4 mr-2" />
                 회의록 삭제
@@ -604,11 +754,21 @@ export function MeetingDetail({
                       회의 원문
                     </CardTitle>
                     <div className="flex items-center gap-2">
+                      {/* 원문 언어 (Static) */}
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md text-sm font-medium border border-gray-200">
+                        <Mic className="w-3.5 h-3.5" />
+                        <span>{langMap[sourceLang]?.name}</span>
+                      </div>
+                      
+                      {/* 번역 언어 선택 (Clickable Toggle) */}
                       <Select
                         value={contentLang}
                         onValueChange={(lang) => {
                           setContentLang(lang);
-                          if (lang !== 'ko') {
+                          // localStorage에 선택 언어 저장
+                          localStorage.setItem(`meeting-${meeting.id}-content-lang`, lang);
+                          
+                          if (lang !== sourceLang) {
                             handleTranslate(meeting.content, lang, 'content');
                           } else {
                             setTranslatedContent('');
@@ -620,12 +780,18 @@ export function MeetingDetail({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="ko">한국어</SelectItem>
+                          <SelectItem value="ko">
+                            <span className="font-medium">원문 보기</span>
+                          </SelectItem>
                           <SelectItem value="en">English</SelectItem>
                           <SelectItem value="ja">日本語</SelectItem>
                           <SelectItem value="zh">中文</SelectItem>
+                          <SelectItem value="es">Español</SelectItem>
+                          <SelectItem value="fr">Français</SelectItem>
+                          <SelectItem value="de">Deutsch</SelectItem>
                         </SelectContent>
                       </Select>
+                      
                       <CollapsibleTrigger asChild>
                         <Button variant="ghost" size="sm">
                           {contentOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -636,12 +802,25 @@ export function MeetingDetail({
                 </CardHeader>
                 <CollapsibleContent>
                   <CardContent>
-                    {isTranslating && contentLang !== 'ko' ? (
-                      <div className="text-center py-4 text-gray-500">번역 중...</div>
+                    {isTranslating && contentLang !== sourceLang ? (
+                      <div className="text-center py-8 text-gray-500">
+                        <div className="inline-flex items-center gap-2">
+                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                          <span>{langMap[sourceLang]?.name} → {langMap[contentLang]?.name} 번역 중...</span>
+                        </div>
+                      </div>
                     ) : (
                       <div className="bg-gray-50 rounded-lg p-4 max-h-[500px] overflow-y-auto">
+                        {contentLang !== sourceLang && (
+                          <div className="mb-3 pb-2 border-b border-gray-300 text-xs text-gray-500">
+                            <span className="inline-flex items-center gap-1">
+                              <Languages className="w-3 h-3" />
+                              번역됨: {langMap[sourceLang]?.name} → {langMap[contentLang]?.name}
+                            </span>
+                          </div>
+                        )}
                         <p className="whitespace-pre-wrap text-gray-700">
-                          {contentLang === 'ko' ? meeting.content : translatedContent || meeting.content}
+                          {contentLang === sourceLang ? meeting.content : translatedContent || meeting.content}
                         </p>
                       </div>
                     )}
@@ -670,36 +849,37 @@ export function MeetingDetail({
                 </CardHeader>
                 <CollapsibleContent>
                   <CardContent>
-                    {meeting.audioUrl ? (
+                    {meeting.audioUrl && meeting.audioUrl.trim() !== '' ? (
                       <div className="space-y-4">
-                        <div className="bg-gray-50 rounded-lg p-4">
-                          <div className="flex items-center justify-between mb-4">
-                            <div className="flex items-center gap-3">
-                              <div className="text-sm text-gray-600">
-                                <span className="font-medium">{meeting.title}</span> 녹음 파일
-                              </div>
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="text-sm text-gray-600">
+                              <span className="font-medium">{meeting.title}</span> 녹음 파일
                             </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={handleAudioDownload}
-                              className="gap-2"
-                            >
-                              <Download className="w-4 h-4" />
-                              다운로드
-                            </Button>
                           </div>
-                          <audio
-                            ref={audioPlayerRef}
-                            src={meeting.audioUrl}
-                            controls
-                            className="w-full"
-                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleAudioDownload}
+                            className="gap-2"
+                          >
+                            <Download className="w-4 h-4" />
+                            다운로드
+                          </Button>
                         </div>
-                        <p className="text-xs text-gray-500">
-                          * 회의 중 녹음된 원본 오디오 파일입니다. 재생 또는 다운로드하여 다시 들을 수 있습니다.
-                        </p>
+                        <audio
+                          ref={audioPlayerRef}
+                          {...(audioSrc && { src: audioSrc })}
+                          controls
+                          className="w-full"
+                          onError={(e) => console.error('[MeetingDetail] Audio load error:', e)}
+                        />
                       </div>
+                      <p className="text-xs text-gray-500">
+                        * 회의 중 녹음된 원본 오디오 파일입니다. 재생 또는 다운로드하여 다시 들을 수 있습니다.
+                      </p>
+                    </div>
                     ) : (
                       <div className="text-center py-8 text-gray-500">
                         <Volume2 className="w-12 h-12 mx-auto mb-2 text-gray-300" />

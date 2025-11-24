@@ -21,7 +21,6 @@ import {
   Clock,
   User
 } from 'lucide-react';
-import { MeetingChatbot } from '@/features/realtime/MeetingChatbot';
 import { MeetingReport } from '@/features/meetings/MeetingReport';
 import { toast } from 'sonner';
 import type { Meeting, ActionItem } from '@/features/dashboard/Dashboard';
@@ -108,9 +107,6 @@ export function MeetingAnalysis({ meeting, onUpdateMeeting }: MeetingAnalysisPro
     toast.success('Google 캘린더로 이동합니다.');
   };
 
-  const handleExportToNotion = () => {
-    toast.info('Notion 연동 기능은 준비 중입니다.');
-  };
 
   const handleExportToJira = () => {
     toast.info('Jira 연동 기능은 준비 중입니다.');
@@ -189,16 +185,11 @@ export function MeetingAnalysis({ meeting, onUpdateMeeting }: MeetingAnalysisPro
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="actionitems" className="gap-1 md:gap-2 text-xs md:text-sm">
             <Target className="w-3 h-3 md:w-4 md:h-4" />
             <span className="hidden sm:inline">액션 아이템 설정</span>
             <span className="sm:hidden">액션</span>
-          </TabsTrigger>
-          <TabsTrigger value="chatbot" className="gap-1 md:gap-2 text-xs md:text-sm">
-            <MessageSquare className="w-3 h-3 md:w-4 md:h-4" />
-            <span className="hidden sm:inline">회의 챗봇</span>
-            <span className="sm:hidden">챗봇</span>
           </TabsTrigger>
           <TabsTrigger value="report" className="gap-1 md:gap-2 text-xs md:text-sm">
             <FileBarChart className="w-3 h-3 md:w-4 md:h-4" />
@@ -277,11 +268,7 @@ export function MeetingAnalysis({ meeting, onUpdateMeeting }: MeetingAnalysisPro
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex justify-center gap-[130px]">
-                <Button variant="outline" className="w-[400px] gap-2 border-[#000000] text-[#000000] hover:bg-[#000000]/10" onClick={handleExportToNotion}>
-                  <ExternalLink className="w-4 h-4" />
-                  Notion
-                </Button>
+              <div className="flex justify-center">
                 <Button variant="outline" className="w-[400px] gap-2 border-[#0052CC] text-[#0052CC] hover:bg-[#0052CC]/10" onClick={handleExportToJira}>
                   <ExternalLink className="w-4 h-4" />
                   Jira
@@ -589,12 +576,10 @@ export function MeetingAnalysis({ meeting, onUpdateMeeting }: MeetingAnalysisPro
           </Card>
         </TabsContent>
 
-        <TabsContent value="chatbot" className="mt-4">
-          <MeetingChatbot meeting={meeting} />
-        </TabsContent>
+        
 
         <TabsContent value="report" className="mt-4">
-          <MeetingReport meeting={meeting} />
+          <MeetingReport meeting={meeting} showExports={false} />
         </TabsContent>
       </Tabs>
     </div>

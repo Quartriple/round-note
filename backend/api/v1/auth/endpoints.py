@@ -80,7 +80,16 @@ def login_for_access_token(form_data: user_schema.UserLogin, db: Session = Depen
 @router.get("/google/login")
 async def google_login(request: Request):
     """Google OAuth 로그인 시작 - Google 로그인 페이지로 리다이렉트"""
-    redirect_uri = os.getenv('GOOGLE_REDIRECT_URI', 'http://localhost:8000/api/v1/auth/google/callback')
+    # 요청된 호스트를 기준으로 redirect_uri 결정
+    host = request.headers.get('host', '')
+    is_local = 'localhost' in host or '127.0.0.1' in host
+    
+    if is_local:
+        redirect_uri = 'http://localhost:8000/api/v1/auth/google/callback'
+    else:
+        # 배포 환경: 환경 변수 또는 요청 호스트 기반
+        redirect_uri = os.getenv('GOOGLE_REDIRECT_URI', f'https://{host}/api/v1/auth/google/callback')
+    
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 @router.get("/google/callback")
@@ -125,7 +134,16 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         access_token = security.create_access_token({"sub": db_user.USER_ID, "email": db_user.EMAIL})
         
         # 프론트엔드로 리다이렉트 (토큰을 쿼리 파라미터로 전달)
-        frontend_url = os.getenv('CORS_ORIGIN_LOCAL', 'http://localhost:3000')
+        # 요청된 호스트를 기준으로 환경 감지
+        host = request.headers.get('host', '')
+        is_local = 'localhost' in host or '127.0.0.1' in host
+        
+        if is_local:
+            frontend_url = 'http://localhost:3000'
+        else:
+            # 배포 환경: CORS_ORIGIN 환경 변수 사용
+            frontend_url = os.getenv('CORS_ORIGIN', 'https://round-note-web.onrender.com')
+        
         return RedirectResponse(url=f"{frontend_url}/login?token={access_token}")
         
     except Exception as e:

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { MeetingInfoInput } from '@/features/meetings/MeetingInfoInput';
 import { MeetingContentInput } from './MeetingContentInput';
 import type { Meeting } from '@/features/dashboard/Dashboard';
@@ -12,6 +13,7 @@ interface MeetingStartProps {
 
 export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
   const [currentStep, setCurrentStep] = useState<'transcribe' | 'info'>('transcribe');
+  const router = useRouter();
   const [transcribedContent, setTranscribedContent] = useState('');
   const [aiAnalysis, setAiAnalysis] = useState<any>(null);
   const [createdMeetingId, setCreatedMeetingId] = useState<string | null>(null);
@@ -25,11 +27,12 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
 
   // 정보 입력 완료 시 - 최종 저장
   const handleInfoComplete = async (info: { title: string; date: string; purpose: string; participants: string[] }) => {
+    // 1. 백엔드에 회의 생성 요청
+    toast.info('회의를 저장하는 중...');
+    
+    let meetingData;
     try {
-      // 1. 백엔드에 회의 생성 요청
-      toast.info('회의를 저장하는 중...');
-      
-      const meetingData = await createMeeting({
+      meetingData = await createMeeting({
         title: info.title,
         purpose: info.purpose,
         is_realtime: true,
@@ -37,16 +40,47 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
 
       // 2. 생성된 회의 ID 저장
       setCreatedMeetingId(meetingData.meeting_id);
+    } catch (createError) {
+      console.error('[MeetingStart] Failed to create meeting:', createError);
+      toast.error('회의 생성에 실패했습니다.');
+      return;
+    }
 
-      // 3. 회의 종료 처리 (END_DT 기록)
-      await endMeeting(meetingData.meeting_id, {
-        status: 'COMPLETED',
-        ended_at: new Date().toISOString(),
-      });
+    // 3. 오디오 파일 업로드
+    if (aiAnalysis?.audioBlob) {
+      try {
+        const formData = new FormData();
+        formData.append('file', aiAnalysis.audioBlob, `${meetingData.meeting_id}.wav`);
+        
+        const token = localStorage.getItem('access_token');
+        const uploadResponse = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/api/v1/meetings/${meetingData.meeting_id}/audio`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+            body: formData,
+          }
+        );
+        
+        if (uploadResponse.ok) {
+          const uploadResult = await uploadResponse.json();
+          console.log('[MeetingStart] Audio uploaded:', uploadResult);
+          toast.success('오디오 파일이 업로드되었습니다.');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        } else {
+          console.error('Audio upload failed:', await uploadResponse.text());
+          toast.warning('오디오 파일 업로드에 실패했습니다.');
+        }
+      } catch (uploadError) {
+        console.error('[MeetingStart] Audio upload error:', uploadError);
+        toast.warning('오디오 파일 업로드 중 오류가 발생했습니다.');
+      }
+    }
 
-      // 4. 로컬 state 업데이트를 위한 데이터 구성
-      // AI 분석 결과가 있으면 사용, 없으면 기본 패턴 매칭 사용
-      const extractActionItems = (text: string) => {
+    // 4. 회의 종료 + LLM 처리를 위한 헬퍼 함수들
+    const extractActionItems = (text: string) => {
       const lines = text.split('\n');
       const actionItems = [];
       
@@ -99,60 +133,72 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
       if (summaryLines.length === 0 && lines.length > 0) {
         summaryLines.push(...lines.slice(0, 3).map(l => l.trim().replace(/^[-•*]\s*/, '')));
       }
-      
+    
       return summaryLines.length > 0 
         ? summaryLines.join('\n') 
         : '회의 내용에서 주요 사항을 추출하지 못했습니다.';
     };
 
+    // 5. 백엔드 API 호출: 회의 종료 + LLM 요약/액션아이템 자동 생성
+    const token = localStorage.getItem('access_token');
     let summary = '';
     let actionItems: any[] = [];
-    
-    // AI 분석 결과 사용
-    if (aiAnalysis) {
-      summary = aiAnalysis.summary || generateSummary(transcribedContent);
+    let audioUrl = '';    try {
+      const endResponse = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/meetings/${meetingData.meeting_id}/end`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            status: 'COMPLETED',
+            ended_at: new Date().toISOString(),
+            content: transcribedContent,
+            audio_url: `./audio_storage/${meetingData.meeting_id}.wav`
+          }),
+        }
+      );
       
-      // AI에서 추출한 액션 아이템을 앱 형식으로 변환
-      if (aiAnalysis.actionItems && Array.isArray(aiAnalysis.actionItems)) {
-        actionItems = aiAnalysis.actionItems.map((item: any, index: number) => ({
-          id: `${Date.now()}-${index}`,
-          text: item.task || item.text || '',
-          assignee: item.assignee || '미정',
-          dueDate: item.dueDate || '',
-          completed: false,
-          priority: item.priority
-        }));
+      if (endResponse.ok) {
+        const endResult = await endResponse.json();
+        console.log('[MeetingStart] End meeting response:', endResult);
+        
+        // 백엔드에서 생성한 요약과 액션 아이템 사용
+        summary = endResult.summary || '';
+        audioUrl = endResult.audio_url || `./audio_storage/${meetingData.meeting_id}.wav`;
+        
+        // 액션 아이템 변환
+        if (endResult.action_items && Array.isArray(endResult.action_items)) {
+          actionItems = endResult.action_items.map((item: any, index: number) => ({
+            id: `${Date.now()}-${index}`,
+            text: item.task || '',
+            assignee: item.assignee || '미정',
+            dueDate: item.deadline || '',
+            completed: false,
+            priority: 'medium'
+          }));
+        }
+        
+        console.log('[MeetingStart] Using backend-generated summary and action items');
       } else {
-        actionItems = extractActionItems(transcribedContent);
+        console.warn('[MeetingStart] Failed to end meeting on backend, using fallback');
+        throw new Error('Failed to end meeting');
       }
-    } else {
-      // 기본 패턴 매칭 사용
-      summary = generateSummary(transcribedContent);
-      actionItems = extractActionItems(transcribedContent);
-    }
-
-      const now = new Date().toISOString();
-      
-      const newMeeting: Meeting = {
-        id: meetingData.meeting_id, // 백엔드에서 받은 ID 사용
-        title: info.title,
-        date: info.date,
-        content: transcribedContent,
-        summary,
-        actionItems,
-        createdAt: meetingData.start_dt || now,
-        updatedAt: meetingData.end_dt || now,
-        participants: info.participants,
-        keyDecisions: aiAnalysis?.keyDecisions || [],
-        nextSteps: aiAnalysis?.nextSteps || [],
-        audioUrl: aiAnalysis?.audioUrl || ''
-      };
-      
-      onAddMeeting(newMeeting);
-      toast.success('회의가 성공적으로 저장되었습니다!');
     } catch (error) {
       console.error('Failed to save meeting:', error);
       toast.error('회의 저장에 실패했습니다. 다시 시도해주세요.');
+      // If auth error, redirect to login
+      try {
+        if (error instanceof Error && (error.name === 'AuthError' || /auth/i.test(error.message) || /유효하지/i.test(error.message))) {
+          toast.error('로그인이 필요합니다. 로그인 페이지로 이동합니다.');
+          router.push('/login');
+          return;
+        }
+      } catch (e) {
+        console.error('Router redirect failed', e);
+      }
       
       // 에러 발생 시에도 로컬 상태는 업데이트 (임시 ID 사용)
       const extractActionItems = (text: string) => {
@@ -216,6 +262,7 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
       let summary = '';
       let actionItems: any[] = [];
       
+      // Fallback: AI 분석 결과 또는 로컬 패턴 매칭 사용
       if (aiAnalysis) {
         summary = aiAnalysis.summary || generateSummary(transcribedContent);
         
@@ -235,26 +282,53 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
         summary = generateSummary(transcribedContent);
         actionItems = extractActionItems(transcribedContent);
       }
-
-      const now = new Date().toISOString();
       
-      const newMeeting: Meeting = {
-        id: Date.now().toString(), // 임시 ID
-        title: info.title,
-        date: info.date,
-        content: transcribedContent,
-        summary,
-        actionItems,
-        createdAt: now,
-        updatedAt: now,
-        participants: info.participants,
-        keyDecisions: aiAnalysis?.keyDecisions || [],
-        nextSteps: aiAnalysis?.nextSteps || [],
-        audioUrl: aiAnalysis?.audioUrl || ''
-      };
-      
-      onAddMeeting(newMeeting);
+      // 회의 정보 조회 시도
+      try {
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/api/v1/meetings/${meetingData.meeting_id}`,
+          {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          }
+        );
+        
+        if (response.ok) {
+          const meetingFromBackend = await response.json();
+          audioUrl = meetingFromBackend.audio_url || meetingFromBackend.location || `./audio_storage/${meetingData.meeting_id}.wav`;
+          console.log('[MeetingStart] Fetched audio URL from backend:', audioUrl);
+        } else {
+          console.warn('[MeetingStart] Failed to fetch meeting from backend');
+          audioUrl = `./audio_storage/${meetingData.meeting_id}.wav`;
+        }
+      } catch (fetchError) {
+        console.error('[MeetingStart] Error fetching meeting:', fetchError);
+        audioUrl = `./audio_storage/${meetingData.meeting_id}.wav`;
+      }
     }
+    
+    const now = new Date().toISOString();
+    
+    const newMeeting: Meeting = {
+      id: meetingData.meeting_id, // 백엔드에서 받은 ID 사용
+      title: info.title,
+      date: info.date,
+      content: transcribedContent,
+      summary,
+      actionItems,
+      createdAt: meetingData.start_dt || now,
+      updatedAt: now,
+      participants: info.participants,
+      keyDecisions: aiAnalysis?.keyDecisions || [],
+      nextSteps: aiAnalysis?.nextSteps || [],
+      audioUrl: audioUrl // 백엔드에서 확인된 실제 경로 사용
+    };
+    
+    console.log('[MeetingStart] New meeting object:', newMeeting);
+    onAddMeeting(newMeeting);
+    toast.success('회의가 성공적으로 저장되었습니다!');
   };
 
   const handleBack = () => {

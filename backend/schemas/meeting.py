@@ -48,6 +48,51 @@ class MeetingOut(MeetingBase):
     )
     TITLE: Optional[str] = Field(None, description="회의 제목", alias="title")
     PURPOSE: Optional[str] = Field(None, description="회의 목적", alias="purpose")
+    CONTENT: Optional[str] = Field(
+        None,
+        description="회의 전사 원문 전체",
+        alias="content"
+    )
+    TRANSLATED_CONTENT: Optional[str] = Field(
+        None,
+        description="번역된 전사 내용",
+        alias="translated_content"
+    )
+    AI_SUMMARY: Optional[str] = Field(
+        None,
+        description="AI가 생성한 회의 요약",
+        alias="ai_summary"
+    )
+    PARTICIPANTS: Optional[list] = Field(
+        None,
+        description="참석자 목록 (JSON 배열)",
+        alias="participants"
+    )
+    KEY_DECISIONS: Optional[list] = Field(
+        None,
+        description="주요 결정사항 (JSON 배열)",
+        alias="key_decisions"
+    )
+    NEXT_STEPS: Optional[list] = Field(
+        None,
+        description="다음 단계 (JSON 배열)",
+        alias="next_steps"
+    )
+    AUDIO_URL: Optional[str] = Field(
+        None,
+        description="오디오 파일 URL",
+        alias="audio_url"
+    )
+    
+    # 관계 필드 추가
+    summary: Optional[dict] = Field(
+        None,
+        description="회의 요약 정보"
+    )
+    action_items: List[dict] = Field(
+        default_factory=list,
+        description="액션 아이템 목록"
+    )
 
     class Config:
         from_attributes = True  # ORM 객체로부터 바로 변환 가능하도록 설정
@@ -65,4 +110,12 @@ class MeetingEndRequest(BaseModel):
     ended_at: Optional[datetime] = Field(
         None,
         description="클라이언트 기준 회의 종료 시각 (보내지 않으면 서버에서 현재 시각 사용)"
+    )
+    content: Optional[str] = Field(
+        None,
+        description="회의 원문 전체 (전사 텍스트)"
+    )
+    audio_url: Optional[str] = Field(
+        None,
+        description="오디오 파일 경로 (NCP Object Storage 등)"
     )

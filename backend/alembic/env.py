@@ -6,8 +6,12 @@ from sqlalchemy import pool
 from alembic import context
 
 import os
-from backend.models import Base
+import sys
 
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, parent_dir)
+
+from backend.models import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

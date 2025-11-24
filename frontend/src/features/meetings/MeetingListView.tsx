@@ -1,11 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Card, CardContent } from '@/shared/ui/card';
 import { Button } from '@/shared/ui/button';
 import { Badge } from '@/shared/ui/badge';
 import { Input } from '@/shared/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
-import { Calendar, CheckCircle2, Circle, Eye, Search, Filter } from 'lucide-react';
+import { Calendar, CheckCircle2, Circle, Eye, Search, Filter, Trash2, MessageSquare } from 'lucide-react';
 import { MeetingDetail } from '@/features/meetings/MeetingDetail';
+import MeetingChat from './MeetingChat';
 import { ScrollToTop } from '@/features/utils/ScrollToTop';
 import type { Meeting } from '@/features/dashboard/Dashboard';
 
@@ -18,6 +19,7 @@ interface MeetingListViewProps {
 
 export function MeetingListView({ meetings, onUpdateMeeting, onDeleteMeeting }: MeetingListViewProps) {
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
+  const [chatVisible, setChatVisible] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'pending'>('all');
   const [sortBy, setSortBy] = useState<'date' | 'title' | 'progress'>('date');
@@ -68,6 +70,8 @@ export function MeetingListView({ meetings, onUpdateMeeting, onDeleteMeeting }: 
     return Math.round((completed / meeting.actionItems.length) * 100);
   };
 
+  
+
   // If a meeting is selected, show detail view
   if (selectedMeeting) {
     return (
@@ -83,24 +87,14 @@ export function MeetingListView({ meetings, onUpdateMeeting, onDeleteMeeting }: 
     );
   }
 
-  if (meetings.length === 0) {
-    return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center py-16">
-          <Circle className="w-16 h-16 text-gray-300 mb-4" />
-          <p className="text-gray-500">아직 작성된 회의록이 없습니다</p>
-          <p className="text-gray-400 text-sm mt-2">새 회의록을 작성해보세요</p>
-        </CardContent>
-      </Card>
-    );
-  }
 
   return (
-    <div className="space-y-5">
+    <div className={`space-y-5`}>
       {/* Search and Filter Section */}
-      <Card className="bg-primary/5 border-primary/20">
-        <CardContent className="pt-6">
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 items-center">
+      <div className="mx-auto w-[1000px] relative">
+        <Card className="bg-primary/5 border-primary/20">
+          <CardContent className="pt-6">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 items-center">
             <div className="md:col-span-1">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -141,22 +135,29 @@ export function MeetingListView({ meetings, onUpdateMeeting, onDeleteMeeting }: 
             </div>
           </div>
 
-          {searchQuery && (
-            <div className="mt-4 text-sm text-gray-600">
-              검색 결과: {filteredAndSortedMeetings.length}개
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            {searchQuery && (
+              <div className="mt-4 text-sm text-gray-600">
+                검색 결과: {filteredAndSortedMeetings.length}개
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+      </div>
 
       {/* Meetings Grid */}
       {filteredAndSortedMeetings.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16">
-            <Search className="w-16 h-16 text-gray-300 mb-4" />
-            <p className="text-gray-500">검색 결과가 없습니다</p>
-          </CardContent>
-        </Card>
+        <div className="w-full">
+          <div className="mx-auto w-[1000px] h-[500px] flex items-center justify-center">
+            <Card className="w-full h-full">
+              <CardContent className="flex flex-col items-center justify-center h-full">
+                <Circle className="w-24 h-24 text-gray-300 mb-4" />
+                <h3 className="text-lg font-medium text-gray-700">아직 작성된 회의록이 없습니다</h3>
+                <p className="text-sm text-gray-500 mt-2">새 회의록을 작성해보세요</p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {filteredAndSortedMeetings.map((meeting) => {
@@ -167,19 +168,34 @@ export function MeetingListView({ meetings, onUpdateMeeting, onDeleteMeeting }: 
               <Card key={meeting.id} className="hover:shadow-lg transition-shadow cursor-pointer">
                 <CardContent className="pt-6" onClick={() => setSelectedMeeting(meeting)}>
                   <div className="space-y-4">
-                    {/* Header */}
-                    <div>
-                      <h3 className="mb-2 line-clamp-2">{meeting.title}</h3>
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
-                        <Calendar className="w-3 h-3" />
-                        <span>{meeting.date}</span>
+                    {/* Header: title + delete */}
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="mb-2 line-clamp-2">{meeting.title}</h3>
+                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                          <Calendar className="w-3 h-3" />
+                          <span>{meeting.date}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => { e.stopPropagation(); onDeleteMeeting(meeting.id); }}
+                          className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
                       </div>
                     </div>
-
-                    {/* Summary */}
-                    <p className="text-sm text-gray-600 line-clamp-3">
-                      {meeting.summary}
-                    </p>
+                    {/* Participants (show only if exists) */}
+                    {meeting.participants && meeting.participants.length > 0 ? (
+                      <p className="text-sm text-gray-600 line-clamp-2">
+                        참여자: {meeting.participants.join(', ')}
+                      </p>
+                    ) : (
+                      <div className="h-3" />
+                    )}
 
                     {/* Action Items Summary */}
                     <div className="flex items-center justify-between">
@@ -229,6 +245,14 @@ export function MeetingListView({ meetings, onUpdateMeeting, onDeleteMeeting }: 
         </div>
       )}
       <ScrollToTop />
+
+      {/* Fixed right-side chat: always mounted so the collapsed bubble can be moved. */}
+      <MeetingChat
+        meeting={filteredAndSortedMeetings[0]}
+        open={chatVisible}
+        onOpen={() => setChatVisible(true)}
+        onClose={() => setChatVisible(false)}
+      />
     </div>
   );
 }

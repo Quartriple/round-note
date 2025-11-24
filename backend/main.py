@@ -9,10 +9,11 @@ from redis import Redis
 import boto3
 from dotenv import load_dotenv
 
-from .api.v1.health_check.endpoints import router as health_router
-from .api.v1.auth.endpoints import router as auth_router
-from .api.v1.meetings.endpoints import router as meetings_router
-from .api.v1.realtime.endpoints import router as realtime_router
+from backend.api.v1.health_check.endpoints import router as health_router
+from backend.api.v1.auth.endpoints import router as auth_router
+from backend.api.v1.meetings.endpoints import router as meetings_router
+from backend.api.v1.realtime.endpoints import router as realtime_router
+from backend.api.v1.reports.endpoints import router as reports_router
 
 
 load_dotenv()
@@ -25,12 +26,17 @@ app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY", "your-s
 
 # 2. CORS 설정
 origins = [
-    os.environ.get("CORS_ORIGIN_LOCAL", "http://localhost:3000"), 
-    os.environ.get("CORS_ORIGIN") # CORS_ORIGIN 환경 변수 사용
+    os.environ.get("CORS_ORIGIN_LOCAL", "http://localhost:3000"),  # 로컬 개발 환경
 ]
+
+# 배포 환경의 CORS_ORIGIN이 설정되어 있으면 추가
+cors_origin = os.environ.get("CORS_ORIGIN")
+if cors_origin:
+    origins.append(cors_origin)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin for origin in origins if origin],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -41,7 +47,7 @@ app.include_router(health_router, prefix="/api/v1/health-check", tags=["Health"]
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(meetings_router, prefix="/api/v1/meetings", tags=["Meetings"])
 app.include_router(realtime_router, prefix="/api/v1/realtime", tags=["Realtime"])
-# TODO: (팀원 A) 추후 보고서(Report) 조회 API 필요 시 라우터 추가
+app.include_router(reports_router, prefix="/api/v1", tags=["Reports"])
 
 
 @app.get("/")
