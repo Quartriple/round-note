@@ -551,8 +551,8 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
                   disabled={!speechSupported || vadLoading}
                   size="lg"
                   className={`flex-1 max-w-md gap-2 ${isRecording
-                      ? 'bg-red-500 hover:bg-red-600'
-                      : 'bg-primary hover:bg-primary/90'
+                    ? 'bg-red-500 hover:bg-red-600'
+                    : 'bg-primary hover:bg-primary/90'
                     } ${!speechSupported ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   {isRecording ? (
@@ -591,7 +591,7 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
               </div>
 
               {/* 전사 내용 표시 영역 - 타임라인 스타일 */}
-              <div className="h-[500px] w-full overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50">
+              <div className="h-[500px] w-[1000px] overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50">
                 {transcript.length > 0 || partialText ? (
                   <div className="space-y-6">
                     {transcript.map((segment) => (
@@ -677,8 +677,8 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
                   disabled={!speechSupported || vadLoading}
                   size="lg"
                   className={`flex-1 max-w-md gap-2 ${isRecording
-                      ? 'bg-red-500 hover:bg-red-600'
-                      : 'bg-primary hover:bg-primary/90'
+                    ? 'bg-red-500 hover:bg-red-600'
+                    : 'bg-primary hover:bg-primary/90'
                     } ${!speechSupported ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   {isRecording ? (
@@ -853,11 +853,7 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
       )}
 
       {/* Bottom Action Bar */}
-      <div className="flex justify-between items-center mt-6">
-        <Button variant="outline" onClick={onBack} className="gap-2">
-          <ArrowLeft className="w-4 h-4" />
-          뒤로가기
-        </Button>
+      <div className="flex justify-end items-center mt-6 mr-4">
         <Button onClick={handleSubmit} disabled={!content.trim() || isProcessing} className="gap-2 bg-primary hover:bg-primary/90">
           {isProcessing ? (
             <>
