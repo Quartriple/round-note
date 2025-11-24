@@ -458,3 +458,54 @@ export const pushToNotion = async (meetingId: string): Promise<any> => {
 
   return response.json();
 };
+
+/**
+ * Notion으로 포괄적 회의록 내보내기 (멘토 피드백 반영)
+ * - 참석자, 요약, 액션 아이템 필수 포함
+ * - 날짜 형식: 2024년 11월 25일 (월) 14:00 - 15:30
+ */
+export const exportToNotionComprehensive = async (meetingId: string): Promise<{
+  success: boolean;
+  notion_page_id: string;
+  notion_url: string;
+  message: string;
+  included: {
+    participants: number;
+    summary: boolean;
+    action_items: number;
+  };
+}> => {
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/notion/comprehensive`, {
+    method: 'POST',
+    headers: getHeaders(),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to export to Notion' }));
+    throw new Error(error.detail || 'Failed to export to Notion');
+  }
+
+  return response.json();
+};
+
+/**
+ * Notion에 액션 아이템만 내보내기
+ */
+export const exportActionItemsToNotion = async (meetingId: string): Promise<{
+  success: boolean;
+  created_count: number;
+  items: Array<{ id: string; url: string }>;
+  message: string;
+}> => {
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/notion/action-items`, {
+    method: 'POST',
+    headers: getHeaders(),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to export action items to Notion' }));
+    throw new Error(error.detail || 'Failed to export action items to Notion');
+  }
+
+  return response.json();
+};
