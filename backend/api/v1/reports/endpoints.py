@@ -842,7 +842,189 @@ async def push_report_to_notion(
 
 
 # ============================================
-# 8. 테스트용 더미 데이터 생성
+# 8. Notion 포괄적 회의록 (멘토 피드백 반영) ⭐
+# ============================================
+@router.post("/{meeting_id}/notion/comprehensive")
+async def push_comprehensive_report_to_notion(
+    meeting_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    **참석 못한 사람도 완벽히 이해할 수 있는 포괄적인 회의록을 Notion에 생성**
+    
+    ⭐ 필수 포함 섹션:
+    - 👥 참석자 (주최자, 참석자, 불참자)
+    - 📝 요약
+    - ⚡ 액션 아이템 (담당자, 마감일)
+    
+    날짜 형식: 2024년 11월 25일 (월) 14:00 - 15:30
+    """
+    from backend.core.integrations.notion_service import Participant
+    
+    # 1. 회의 정보 조회
+    meeting = db.query(models.Meeting).filter(
+        models.Meeting.MEETING_ID == meeting_id
+    ).first()
+    
+    if not meeting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Meeting {meeting_id} not found"
+        )
+    
+    # 2. 요약 조회 (⭐ 필수)
+    summary = db.query(models.Summary).filter(
+        models.Summary.MEETING_ID == meeting_id
+    ).first()
+    
+    summary_text = summary.CONTENT if summary else "요약 없음"
+    
+    # 3. 액션 아이템 조회 (⭐ 필수)
+    action_items_db = db.query(models.ActionItem).filter(
+        models.ActionItem.MEETING_ID == meeting_id
+    ).all()
+    
+    action_items = [
+        {
+            'title': item.TITLE,
+            'assignee': getattr(item, 'ASSIGNEE_NAME', None) or item.ASSIGNEE_ID,
+            'due_date': item.DUE_DT,
+            'status': item.STATUS or 'PENDING',
+            'description': item.DESCRIPTION,
+            'priority': item.PRIORITY or 'MEDIUM'
+        }
+        for item in action_items_db
+    ]
+    
+    # 4. 참석자 정보 (⭐ 필수)
+    participants = [
+        Participant(
+            user_id=meeting.CREATOR_ID or "unknown",
+            name=current_user.NAME or current_user.EMAIL or "주최자",
+            role="host"
+        )
+    ]
+    
+    # 5. Notion 페이지 생성
+    try:
+        result = notion.create_comprehensive_meeting_page(
+            meeting_title=meeting.TITLE or f"회의 {meeting_id}",
+            meeting_date=meeting.START_DT,
+            meeting_end_date=meeting.END_DT,
+            location="온라인",
+            meeting_type="정기",
+            participants=participants,
+            absent_members=[],
+            purpose="",
+            summary=summary_text,
+            discussions=[],
+            decisions=[],
+            action_items=action_items,
+            pending_issues=[],
+            attachments=[],
+            next_meeting_agenda=None,
+            audio_url=f"https://roundnote.com/meetings/{meeting_id}/audio",
+            transcript_url=f"https://roundnote.com/meetings/{meeting_id}/transcript"
+        )
+        
+        return {
+            "success": True,
+            "notion_page_id": result["id"],
+            "notion_url": result["url"],
+            "message": "포괄적 회의록이 Notion에 생성되었습니다.",
+            "included": {
+                "participants": len(participants),
+                "summary": bool(summary_text),
+                "action_items": len(action_items)
+            }
+        }
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Notion 설정 오류: {str(e)}. 환경 변수를 확인하세요."
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Notion 페이지 생성 실패: {str(e)}"
+        )
+
+
+# ============================================
+# 9. Notion 액션 아이템만 Tasks DB에 추가
+# ============================================
+@router.post("/{meeting_id}/notion/action-items")
+async def push_action_items_to_notion_db(
+    meeting_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    액션 아이템만 Notion Tasks 데이터베이스에 추가
+    
+    환경 변수 필요: NOTION_DATABASE_ID
+    """
+    
+    # 회의 확인
+    meeting = db.query(models.Meeting).filter(
+        models.Meeting.MEETING_ID == meeting_id
+    ).first()
+    
+    if not meeting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Meeting {meeting_id} not found"
+        )
+    
+    # 액션 아이템 조회
+    action_items = db.query(models.ActionItem).filter(
+        models.ActionItem.MEETING_ID == meeting_id
+    ).all()
+    
+    if not action_items:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="액션 아이템이 없습니다"
+        )
+    
+    try:
+        created_items = []
+        
+        for item in action_items:
+            result = notion.create_action_item_in_database(
+                title=item.TITLE,
+                assignee=getattr(item, 'ASSIGNEE_NAME', None) or item.ASSIGNEE_ID,
+                due_date=item.DUE_DT,
+                priority=item.PRIORITY or "MEDIUM",
+                status=item.STATUS or "PENDING",
+                description=item.DESCRIPTION,
+                meeting_title=meeting.TITLE
+            )
+            created_items.append(result)
+        
+        return {
+            "success": True,
+            "created_count": len(created_items),
+            "items": created_items,
+            "message": f"{len(created_items)}개의 액션 아이템이 Notion에 추가되었습니다."
+        }
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Notion 설정 오류: {str(e)}. NOTION_DATABASE_ID를 확인하세요."
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Notion 추가 실패: {str(e)}"
+        )
+
+
+# ============================================
+# 10. 테스트용 더미 데이터 생성
 # ============================================
 @router.post("/dummy/create-sample-data")
 async def create_sample_data(

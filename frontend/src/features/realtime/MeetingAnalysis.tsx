@@ -378,6 +378,37 @@ export function MeetingAnalysis({ meeting: meetingProp, onUpdateMeeting }: Meeti
     }
   };
 
+  // Notion 내보내기 핸들러
+  const [isLoadingNotion, setIsLoadingNotion] = useState(false);
+  
+  const handleExportToNotion = async () => {
+    try {
+      setIsLoadingNotion(true);
+      toast.info('Notion에 내보내는 중...');
+      
+      const { exportToNotionComprehensive } = await import('@/features/meetings/reportsService');
+      const result = await exportToNotionComprehensive(meeting.id);
+      
+      if (result.success) {
+        toast.success('Notion에 회의록이 생성되었습니다!');
+        
+        // Notion 페이지 열기
+        if (result.notion_url) {
+          window.open(result.notion_url, '_blank');
+        }
+      }
+    } catch (error: any) {
+      console.error('Notion export error:', error);
+      if (error.message?.includes('설정')) {
+        toast.error('Notion을 먼저 연동해주세요. 환경 변수를 확인하세요.');
+      } else {
+        toast.error(`Notion 내보내기 실패: ${error.message}`);
+      }
+    } finally {
+      setIsLoadingNotion(false);
+    }
+  };
+
   const handleJiraSync = async () => {
     if (!selectedProject) {
       toast.error('프로젝트를 선택해주세요');
@@ -843,16 +874,24 @@ export function MeetingAnalysis({ meeting: meetingProp, onUpdateMeeting }: Meeti
                 </div>
               )}
               
-              {/* Jira 동기화 버튼 */}
+              {/* Jira & Notion 동기화 버튼 */}
               {meeting.actionItems.length > 0 && (
-                <div className="mt-4 pt-4 border-t flex justify-center">
+                <div className="mt-4 pt-4 border-t flex justify-center gap-3">
                   <Button 
                     variant="outline" 
-                    className="w-[400px] gap-2 border-[#0052CC] text-[#0052CC] hover:bg-[#0052CC]/10" 
+                    className="w-[200px] gap-2 border-[#0052CC] text-[#0052CC] hover:bg-[#0052CC]/10" 
                     onClick={handleExportToJira}
                   >
                     <ExternalLink className="w-4 h-4" />
                     Jira에 동기화
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    className="w-[200px] gap-2 border-[#000000] text-[#000000] hover:bg-[#000000]/10" 
+                    onClick={handleExportToNotion}
+                  >
+                    <FileBarChart className="w-4 h-4" />
+                    Notion에 동기화
                   </Button>
                 </div>
               )}
