@@ -97,6 +97,8 @@ def list_meetings(
                     "status": item.STATUS,
                     "priority": item.PRIORITY,
                     "assignee_id": item.ASSIGNEE_ID,
+                    "assignee_name": item.ASSIGNEE_NAME,
+                    "jira_assignee_id": item.JIRA_ASSIGNEE_ID,
                     "due_dt": item.DUE_DT,
                     "created_dt": item.CREATED_DT,
                     "updated_dt": item.UPDATED_DT
@@ -175,6 +177,8 @@ def get_meeting(
                 "status": item.STATUS,
                 "priority": item.PRIORITY,
                 "assignee_id": item.ASSIGNEE_ID,
+                "assignee_name": item.ASSIGNEE_NAME,
+                "jira_assignee_id": item.JIRA_ASSIGNEE_ID,
                 "due_dt": item.DUE_DT,
                 "created_dt": item.CREATED_DT,
                 "updated_dt": item.UPDATED_DT
@@ -339,8 +343,9 @@ async def end_meeting_and_process(
             
             # 액션 아이템 저장
             for item_data in result.get("action_items", []):
+                item_id = str(ulid.new())
                 action_item = models.ActionItem(
-                    ITEM_ID=str(ulid.new()),
+                    ITEM_ID=item_id,
                     MEETING_ID=meeting_id,
                     TITLE=item_data.get("task", ""),
                     DESCRIPTION=item_data.get("task", ""),
@@ -350,9 +355,13 @@ async def end_meeting_and_process(
                 )
                 db.add(action_item)
                 action_items.append({
+                    "item_id": item_id,
+                    "title": item_data.get("task"),
                     "task": item_data.get("task"),
                     "assignee": item_data.get("assignee"),
-                    "deadline": item_data.get("deadline")
+                    "deadline": item_data.get("deadline"),
+                    "status": "PENDING",
+                    "priority": "MEDIUM"
                 })
             
             db.commit()

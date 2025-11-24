@@ -14,6 +14,7 @@ from backend.api.v1.auth.endpoints import router as auth_router
 from backend.api.v1.meetings.endpoints import router as meetings_router
 from backend.api.v1.realtime.endpoints import router as realtime_router
 from backend.api.v1.reports.endpoints import router as reports_router
+from backend.api.v1.settings.endpoints import router as settings_router
 
 
 load_dotenv()
@@ -48,6 +49,7 @@ app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(meetings_router, prefix="/api/v1/meetings", tags=["Meetings"])
 app.include_router(realtime_router, prefix="/api/v1/realtime", tags=["Realtime"])
 app.include_router(reports_router, prefix="/api/v1", tags=["Reports"])
+app.include_router(settings_router, prefix="/api/v1", tags=["Settings"])
 
 
 @app.get("/")

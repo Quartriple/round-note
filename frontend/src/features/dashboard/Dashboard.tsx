@@ -32,11 +32,16 @@ import logoSmall from "../../../public/60426c137b413d34e2b76e4bc10e67509bb612fb.
 export interface ActionItem {
   id: string;
   text: string;
+  description?: string;
   assignee: string;
   dueDate: string;
   completed: boolean;
   priority?: string;
   assigneeAvatar?: string;
+  item_id?: string;
+  title?: string;
+  due_date?: string;
+  jira_assignee_id?: string | null;
 }
 
 export interface Meeting {
@@ -89,11 +94,16 @@ export default function Dashboard() {
             summary: m.summary?.content || m.ai_summary || m.purpose || '',
             actionItems: (m.action_items || []).map((item: any) => ({
               id: item.item_id,
+              item_id: item.item_id,
               text: item.title || item.description || '',
-              assignee: item.assignee_id || '미정',
+              title: item.title,
+              description: item.description,
+              assignee: item.assignee_name || '미지정',
               dueDate: item.due_dt ? new Date(item.due_dt).toISOString().split('T')[0] : '',
+              due_date: item.due_dt,
               completed: item.status === 'DONE',
-              priority: item.priority?.toLowerCase() || 'medium'
+              priority: item.priority?.toLowerCase() || 'medium',
+              jira_assignee_id: item.jira_assignee_id
             })),
             createdAt: m.start_dt || new Date().toISOString(),
             updatedAt: m.end_dt || new Date().toISOString(),
@@ -130,11 +140,14 @@ export default function Dashboard() {
   };
 
   const handleUpdateMeeting = (updatedMeeting: Meeting) => {
+    console.log('[Dashboard] handleUpdateMeeting called with:', updatedMeeting);
     const updated = {
       ...updatedMeeting,
       updatedAt: new Date().toISOString(),
     };
-    setMeetings(meetings.map((m) => (m.id === updated.id ? updated : m)));
+    const newMeetings = meetings.map((m) => (m.id === updated.id ? updated : m));
+    console.log('[Dashboard] Updated meetings:', newMeetings);
+    setMeetings(newMeetings);
   };
 
   const handleDeleteMeeting = (id: string) => {
