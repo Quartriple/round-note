@@ -6,18 +6,22 @@
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-// 토큰을 로컬스토리지에서 가져오는 헬퍼 함수
-const getAuthToken = (): string | null => {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('access_token');
+// 공통 헤더 생성 (httpOnly Cookie 사용)
+const getHeaders = (): HeadersInit => {
+  return {
+    'Content-Type': 'application/json'
+  };
 };
 
-// 공통 헤더 생성
-const getHeaders = (): HeadersInit => {
-  const token = getAuthToken();
+// 공통 fetch 옵션 (credentials 포함)
+const getFetchOptions = (options: RequestInit = {}): RequestInit => {
   return {
-    'Content-Type': 'application/json',
-    ...(token && { 'Authorization': `Bearer ${token}` })
+    ...options,
+    credentials: 'include',
+    headers: {
+      ...getHeaders(),
+      ...(options.headers || {})
+    }
   };
 };
 
@@ -75,10 +79,9 @@ export interface ChatResponse {
  * 회의 요약 조회
  */
 export const getMeetingSummary = async (meetingId: string): Promise<SummaryResponse> => {
-  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/summary`, {
-    method: 'GET',
-    headers: getHeaders(),
-  });
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/summary`, 
+    getFetchOptions({ method: 'GET' })
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch summary' }));
@@ -92,10 +95,9 @@ export const getMeetingSummary = async (meetingId: string): Promise<SummaryRespo
  * 액션 아이템 목록 조회
  */
 export const getMeetingActionItems = async (meetingId: string): Promise<ActionItemResponse[]> => {
-  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/action-items`, {
-    method: 'GET',
-    headers: getHeaders(),
-  });
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/action-items`, 
+    getFetchOptions({ method: 'GET' })
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch action items' }));
@@ -109,10 +111,9 @@ export const getMeetingActionItems = async (meetingId: string): Promise<ActionIt
  * 전체 보고서 조회 (요약 + 액션 아이템 + 전사 내용)
  */
 export const getFullReport = async (meetingId: string): Promise<FullReportResponse> => {
-  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/full`, {
-    method: 'GET',
-    headers: getHeaders(),
-  });
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/full`, 
+    getFetchOptions({ method: 'GET' })
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch full report' }));
@@ -126,10 +127,9 @@ export const getFullReport = async (meetingId: string): Promise<FullReportRespon
  * 요약 및 액션 아이템 재생성 (LLM 호출)
  */
 export const regenerateSummary = async (meetingId: string): Promise<RegenerateResponse> => {
-  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/regenerate`, {
-    method: 'POST',
-    headers: getHeaders(),
-  });
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/regenerate`, 
+    getFetchOptions({ method: 'POST' })
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to regenerate summary' }));
@@ -148,10 +148,7 @@ export const searchMeetingContent = async (
 ): Promise<{ results: string[] }> => {
   const response = await fetch(
     `${API_URL}/api/v1/reports/${meetingId}/search?query=${encodeURIComponent(query)}`, 
-    {
-      method: 'GET',
-      headers: getHeaders(),
-    }
+    getFetchOptions({ method: 'GET' })
   );
 
   if (!response.ok) {
@@ -170,14 +167,15 @@ export const chatWithMeeting = async (
   message: string,
   history: ChatMessage[] = []
 ): Promise<ChatResponse> => {
-  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/chat`, {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify({
-      message,
-      history,
-    }),
-  });
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/chat`, 
+    getFetchOptions({
+      method: 'POST',
+      body: JSON.stringify({
+        message,
+        history,
+      }),
+    })
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Chat failed' }));
@@ -196,11 +194,12 @@ export const saveJiraSettings = async (settings: {
   api_token: string;
   default_project_key?: string;
 }): Promise<{ message: string; projects_found: number }> => {
-  const response = await fetch(`${API_URL}/api/v1/settings/jira`, {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify(settings),
-  });
+  const response = await fetch(`${API_URL}/api/v1/settings/jira`, 
+    getFetchOptions({
+      method: 'POST',
+      body: JSON.stringify(settings),
+    })
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to save Jira settings' }));
@@ -219,10 +218,9 @@ export const getJiraSettings = async (): Promise<{
   default_project_key?: string;
   is_active: boolean;
 }> => {
-  const response = await fetch(`${API_URL}/api/v1/settings/jira`, {
-    method: 'GET',
-    headers: getHeaders(),
-  });
+  const response = await fetch(`${API_URL}/api/v1/settings/jira`, 
+    getFetchOptions({ method: 'GET' })
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Jira settings not found' }));
@@ -236,10 +234,9 @@ export const getJiraSettings = async (): Promise<{
  * Jira 설정 삭제
  */
 export const deleteJiraSettings = async (): Promise<{ message: string }> => {
-  const response = await fetch(`${API_URL}/api/v1/settings/jira`, {
-    method: 'DELETE',
-    headers: getHeaders(),
-  });
+  const response = await fetch(`${API_URL}/api/v1/settings/jira`, 
+    getFetchOptions({ method: 'DELETE' })
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to delete Jira settings' }));
@@ -260,10 +257,9 @@ export const getJiraProjectUsers = async (projectKey: string): Promise<{
     avatar_url?: string;
   }>;
 }> => {
-  const response = await fetch(`${API_URL}/api/v1/settings/jira/projects/${projectKey}/users`, {
-    method: 'GET',
-    headers: getHeaders(),
-  });
+  const response = await fetch(`${API_URL}/api/v1/settings/jira/projects/${projectKey}/users`, 
+    getFetchOptions({ method: 'GET' })
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch Jira users' }));
@@ -284,10 +280,9 @@ export const getJiraPriorities = async (projectKey: string): Promise<{
     description: string;
   }>;
 }> => {
-  const response = await fetch(`${API_URL}/api/v1/settings/jira/projects/${projectKey}/priorities`, {
-    method: 'GET',
-    headers: getHeaders(),
-  });
+  const response = await fetch(`${API_URL}/api/v1/settings/jira/projects/${projectKey}/priorities`, 
+    getFetchOptions({ method: 'GET' })
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch Jira priorities' }));
@@ -304,10 +299,9 @@ export const getJiraProjects = async (): Promise<{
   projects: Array<{ key: string; name: string; id: string }>;
   default_project_key?: string;
 }> => {
-  const response = await fetch(`${API_URL}/api/v1/settings/jira/projects`, {
-    method: 'GET',
-    headers: getHeaders(),
-  });
+  const response = await fetch(`${API_URL}/api/v1/settings/jira/projects`, 
+    getFetchOptions({ method: 'GET' })
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch Jira projects' }));
@@ -336,11 +330,12 @@ export const pushToJira = async (
     failed_count: number;
   };
 }> => {
-  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/action-items/to-jira`, {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify({ project_key: projectKey }),
-  });
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/action-items/to-jira`, 
+    getFetchOptions({
+      method: 'POST',
+      body: JSON.stringify({ project_key: projectKey }),
+    })
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to push to Jira' }));
@@ -365,11 +360,12 @@ export const createActionItem = async (
     jira_assignee_id?: string;
   }
 ): Promise<any> => {
-  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/action-items`, {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify(item),
-  });
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/action-items`, 
+    getFetchOptions({
+      method: 'POST',
+      body: JSON.stringify(item),
+    })
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to create action item' }));
@@ -400,11 +396,12 @@ export const updateActionItem = async (
   console.log('[updateActionItem] Request:', { url, meetingId, itemId, updates });
   
   try {
-    const response = await fetch(url, {
-      method: 'PATCH',
-      headers: getHeaders(),
-      body: JSON.stringify(updates),
-    });
+    const response = await fetch(url, 
+      getFetchOptions({
+        method: 'PATCH',
+        body: JSON.stringify(updates),
+      })
+    );
 
     console.log('[updateActionItem] Response status:', response.status, response.statusText);
 
@@ -434,10 +431,9 @@ export const deleteActionItem = async (
   meetingId: string,
   itemId: string
 ): Promise<{ message: string; item_id: string }> => {
-  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/action-items/${itemId}`, {
-    method: 'DELETE',
-    headers: getHeaders(),
-  });
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/action-items/${itemId}`, 
+    getFetchOptions({ method: 'DELETE' })
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to delete action item' }));
@@ -451,10 +447,9 @@ export const deleteActionItem = async (
  * Notion으로 보고서 내보내기
  */
 export const pushToNotion = async (meetingId: string): Promise<any> => {
-  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/report/to-notion`, {
-    method: 'POST',
-    headers: getHeaders(),
-  });
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/report/to-notion`, 
+    getFetchOptions({ method: 'POST' })
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to push to Notion' }));
