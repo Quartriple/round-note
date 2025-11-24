@@ -41,7 +41,7 @@ export interface ActionItem {
   item_id?: string;
   title?: string;
   due_date?: string;
-  jira_assignee_id?: string;
+  jira_assignee_id?: string | null;
 }
 
 export interface Meeting {
