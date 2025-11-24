@@ -57,7 +57,7 @@ export function MeetingAnalysis({ meeting: meetingProp, onUpdateMeeting }: Meeti
     title: string;
     description: string;
     assignee_name: string;
-    jira_assignee_id: string;
+    jira_assignee_id: string | null;
     priority: string;
     due_dt: string;
   }>>([]);
