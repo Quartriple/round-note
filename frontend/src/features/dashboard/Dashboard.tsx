@@ -57,6 +57,7 @@ export interface Meeting {
   keyDecisions?: string[];
   nextSteps?: string[];
   audioUrl?: string;
+  purpose?: string;   // 회의 목적
 }
 
 const STORAGE_KEY = "meetings-app-data";

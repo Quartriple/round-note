@@ -346,6 +346,7 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
         }}
         onComplete={handleContentComplete}
         onBack={() => {}} // 뒤로가기 없음
+        meetings={meetings} 
       />
     );
   }
@@ -353,30 +354,46 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
   // 2단계: 정보 입력 (제목, 목적, 참석자 등)
   // AI 분석 결과를 바탕으로 초기값 설정
   const generateDefaultTitle = () => {
-    // 내용이 없으면 날짜 기반 디폴트 제목
+    const now = new Date();
+
+    // 날짜 (한국식 표기)
+    const dateStr = now.toLocaleDateString("ko-KR", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    }); // "2025년 11월 24일"
+
+    // 시간 (시:분)
+    const timeStr = `${String(now.getHours()).padStart(2, "0")}시`;
+
+    // 오늘 날짜 기준 회의 개수
+    const todayISO = now.toISOString().split("T")[0]; // YYYY-MM-DD
+    const count = meetings.filter((m) => m.date === todayISO).length + 1;
+
+    // 1) 내용이 없으면 날짜+시간 기반 제목
     if (!transcribedContent.trim()) {
-      const now = new Date();
-      const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
-      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      const count = meetings.filter(m => m.date === dateStr).length + 1;
       return `${dateStr} ${timeStr} 회의(${count})`;
     }
-    
-    // AI 분석 결과에서 제목 추출
+
+    // 2) AI 분석 결과에서 제목 추출
     if (aiAnalysis?.title) {
-      return aiAnalysis.title;
+      return `${dateStr} ${timeStr} ${aiAnalysis.title}(${count})`;
     }
-    
-    // 내용의 첫 줄을 제목으로 사용 (최대 50자)
-    const firstLine = transcribedContent.split('\n')[0].trim();
-    if (firstLine) {
-      return firstLine.substring(0, 50) + (firstLine.length > 50 ? '...' : '');
+
+    // 3) 내용의 첫 줄을 제목으로 사용 (단, 안내 문구는 제외)
+    const firstLine = transcribedContent.split("\n")[0].trim();
+    if (
+      firstLine &&
+      !firstLine.includes("실시간 전사를 시작합니다") &&
+      !firstLine.includes("회의 시작")
+    ) {
+      const summary =
+        firstLine.substring(0, 50) + (firstLine.length > 50 ? "..." : "");
+      return `${dateStr} ${timeStr} ${summary} 회의(${count})`;
     }
-    
-    // 기본 제목
-    const dateStr = new Date().toISOString().split('T')[0];
-    const count = meetings.filter(m => m.date === dateStr).length + 1;
-    return `${dateStr} 회의(${count})`;
+
+    // 4) 기본 제목
+    return `${dateStr} ${timeStr} 회의(${count})`;
   };
 
   const generateDefaultPurpose = () => {
@@ -384,30 +401,30 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
     if (aiAnalysis?.purpose) {
       return aiAnalysis.purpose;
     }
-    
+
     // 요약의 일부를 목적으로 사용
     if (aiAnalysis?.summary) {
-      const summaryFirstLine = aiAnalysis.summary.split('\n')[0].trim();
+      const summaryFirstLine = aiAnalysis.summary.split("\n")[0].trim();
       return summaryFirstLine.substring(0, 100);
     }
-    
-    return '';
+
+    return "";
   };
 
   return (
-    <div className="bg-white rounded-2xl p-8 shadow-sm border border-border w-[1100PX]  max-w-[1100px] mx-auto">
+    <div className="bg-white rounded-2xl p-8 shadow-sm border border-border w-[1100px] max-w-[1100px] mx-auto">
       <div className="mb-6">
         <h2 className="text-foreground mb-2">회의 정보 입력</h2>
         <p className="text-sm text-muted-foreground">
           회의 전사가 완료되었습니다. 회의 정보를 확인하고 수정해주세요.
         </p>
       </div>
-      <MeetingInfoInput 
+      <MeetingInfoInput
         initialInfo={{
           title: generateDefaultTitle(),
-          date: new Date().toISOString().split('T')[0],
+          date: new Date().toISOString().split("T")[0],
           purpose: generateDefaultPurpose(),
-          participants: aiAnalysis?.participants?.join(', ') || ''
+          participants: aiAnalysis?.participants?.join(", ") || "",
         }}
         meetings={meetings}
         onComplete={handleInfoComplete}
