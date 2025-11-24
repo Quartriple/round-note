@@ -86,8 +86,13 @@ export function PlatformSettings({ onBack }: PlatformSettingsProps) {
           ));
         }
       } catch (error) {
-        // Jira 설정이 없으면 무시
+        // Jira 설정이 없으면 연동 상태를 false로 설정
         console.log("No Jira settings found");
+        setPlatforms(prev => prev.map(p => 
+          p.id === "jira" 
+            ? { ...p, connected: false, enabled: false }
+            : p
+        ));
       }
     };
     
