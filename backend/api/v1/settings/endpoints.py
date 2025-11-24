@@ -243,7 +243,28 @@ async def get_jira_projects(
             "default_project_key": config.get("default_project_key")
         }
         
+    except requests.exceptions.RequestException as e:
+        # Network/HTTP errors from Jira API
+        error_detail = f"Jira API request failed: {str(e)}"
+        if hasattr(e, 'response') and e.response is not None:
+            error_detail += f" (Status: {e.response.status_code})"
+            try:
+                error_json = e.response.json()
+                if "errorMessages" in error_json:
+                    error_detail += f" - {', '.join(error_json['errorMessages'])}"
+            except:
+                pass
+        print(f"[ERROR] {error_detail}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=error_detail
+        )
     except Exception as e:
+        # Other errors (decryption, parsing, etc.)
+        error_detail = f"Failed to fetch Jira projects: {type(e).__name__}: {str(e)}"
+        print(f"[ERROR] {error_detail}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch Jira projects: {str(e)}"
