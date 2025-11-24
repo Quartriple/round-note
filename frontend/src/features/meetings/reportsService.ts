@@ -361,6 +361,8 @@ export const createActionItem = async (
     due_dt?: string;
     priority?: string;
     assignee_id?: string;
+    assignee_name?: string;
+    jira_assignee_id?: string;
   }
 ): Promise<any> => {
   const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/action-items`, {
