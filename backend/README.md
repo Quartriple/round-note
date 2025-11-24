@@ -667,11 +667,16 @@ logger.error("LLM 요약 오류: %s", str(e))
   - [x] POST /auth/logout (로그아웃 처리)
   - [ ] 보안 개선 (localStorage → httpOnly Cookie)
 
-- [ ] **회의 저장 통합**
-  - [ ] 회의 종료 시 전사 내용(CONTENT), AI 분석(AI_SUMMARY) DB 저장
-  - [ ] 액션 아이템 자동 추출 및 ACTION_ITEM 테이블 저장
-  - [ ] Summary 테이블 연동 (회의별 요약 저장)
-  - [ ] 프론트엔드 → 백엔드 회의 저장 시 전체 데이터 전달
+- [X] **회의 저장 통합**
+  - [X] 회의 종료 시 전사 내용(CONTENT), AI 분석(AI_SUMMARY) DB 저장
+  - [X] 액션 아이템 자동 추출 및 ACTION_ITEM 테이블 저장
+  - [X] Summary 테이블 연동 (회의별 요약 저장)
+  - [X] 프론트엔드 → 백엔드 회의 저장 시 전체 데이터 전달
+
+
+- [X] **Jira 연동**
+  - [X] `core/integrations/jira_service.py` - 액션 아이템을 Jira 이슈로 생성
+
 
 **Phase 1C - 버그 수정 🐛**
 
@@ -742,8 +747,7 @@ logger.error("LLM 요약 오류: %s", str(e))
 
 **Phase 3D (1-2일) - Phase 3A 완료 후**
 
-- [] **Jira/Notion 연동**
-  - [] `core/integrations/jira_service.py` - 액션 아이템을 Jira 이슈로 생성
+- [] **Notion 연동**
   - [] `core/integrations/notion_service.py` - 보고서를 Notion 페이지로 생성
   - [ ] 통합 테스트
 
