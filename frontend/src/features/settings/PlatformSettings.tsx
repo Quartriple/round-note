@@ -3,10 +3,17 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Card } from "@/shared/ui/card";
-import { ArrowLeft, Link2, CheckCircle2, AlertCircle, ExternalLink, XCircle } from "lucide-react";
+import { ArrowLeft, Link2, CheckCircle2, AlertCircle, ExternalLink, XCircle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Switch } from "@/shared/ui/switch";
 import { Badge } from "@/shared/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
 
 interface PlatformSettingsProps {
   onBack: () => void;
@@ -96,7 +103,32 @@ export function PlatformSettings({ onBack }: PlatformSettingsProps) {
       }
     };
     
+    // Notion 설정 확인
+    const checkNotionSettings = async () => {
+      try {
+        const { getNotionSettings } = await import('@/features/meetings/reportsService');
+        const settings = await getNotionSettings();
+        
+        if (settings && settings.is_active) {
+          setPlatforms(prev => prev.map(p => 
+            p.id === "notion" 
+              ? { ...p, connected: true, enabled: true }
+              : p
+          ));
+        }
+      } catch (error) {
+        // Notion 설정이 없으면 연동 상태를 false로 설정
+        console.log("No Notion settings found");
+        setPlatforms(prev => prev.map(p => 
+          p.id === "notion" 
+            ? { ...p, connected: false, enabled: false }
+            : p
+        ));
+      }
+    };
+    
     checkJiraSettings();
+    checkNotionSettings();
   }, []);
 
   const saveSettings = (updatedPlatforms: Platform[]) => {
@@ -190,6 +222,45 @@ export function PlatformSettings({ onBack }: PlatformSettingsProps) {
       } catch (error: any) {
         toast.error(`Jira 연동 실패: ${error.message}`);
       }
+    } else if (platformId === "notion") {
+      // Notion 연동 - Backend API 호출 (API 토큰만 저장)
+      if (!apiKeyInput.trim()) {
+        toast.error("API 토큰을 입력해주세요");
+        return;
+      }
+
+      try {
+        const { saveNotionSettings } = await import('@/features/meetings/reportsService');
+        
+        toast.info("Notion 연결 중...");
+        
+        // API 토큰만 저장 (페이지/DB는 export 시점에 선택)
+        await saveNotionSettings({
+          api_token: apiKeyInput.trim(),
+        });
+
+        const updatedPlatforms = platforms.map(p => 
+          p.id === "notion" 
+            ? { 
+                ...p, 
+                connected: true, 
+                enabled: true, 
+                apiKey: apiKeyInput,
+                tempParentPageId: undefined,
+                tempDatabaseId: undefined
+              }
+            : p
+        );
+        
+        saveSettings(updatedPlatforms);
+        setExpandedPlatform(null);
+        setApiKeyInput("");
+        setWebhookInput("");
+        
+        toast.success("Notion 연동 완료! (내보낼 때 페이지를 선택할 수 있습니다)");
+      } catch (error: any) {
+        toast.error(`Notion 연동 실패: ${error.message}`);
+      }
     } else {
       // 다른 플랫폼 (기존 로직)
       if (!apiKeyInput.trim()) {
@@ -232,6 +303,23 @@ export function PlatformSettings({ onBack }: PlatformSettingsProps) {
         saveSettings(updatedPlatforms);
         setExpandedPlatform(null);
         toast.success("Jira 연동이 해제되었습니다");
+      } catch (error: any) {
+        toast.error(`연동 해제 실패: ${error.message}`);
+      }
+    } else if (platformId === "notion") {
+      try {
+        const { deleteNotionSettings } = await import('@/features/meetings/reportsService');
+        await deleteNotionSettings();
+        
+        const updatedPlatforms = platforms.map(p => 
+          p.id === "notion" 
+            ? { ...p, connected: false, enabled: false, apiKey: undefined }
+            : p
+        );
+        
+        saveSettings(updatedPlatforms);
+        setExpandedPlatform(null);
+        toast.success("Notion 연동이 해제되었습니다");
       } catch (error: any) {
         toast.error(`연동 해제 실패: ${error.message}`);
       }
@@ -374,32 +462,39 @@ export function PlatformSettings({ onBack }: PlatformSettingsProps) {
                     </>
                   ) : (
                     <>
-                      <div className="space-y-2">
-                        <Label htmlFor={`${platform.id}-api-key`}>
-                          API 키 / 토큰 *
-                        </Label>
-                        <Input
-                          id={`${platform.id}-api-key`}
-                          type="password"
-                          placeholder={`${platform.name} API 키 또는 토큰을 입력하세요`}
-                          value={apiKeyInput}
-                          onChange={(e) => setApiKeyInput(e.target.value)}
-                        />
-                      </div>
-
-                      {(platform.id === "notion") && (
-                        <div className="space-y-2">
-                          <Label htmlFor={`${platform.id}-webhook`}>
-                            Webhook URL (선택사항)
-                          </Label>
-                          <Input
-                            id={`${platform.id}-webhook`}
-                            type="url"
-                            placeholder="Webhook URL을 입력하세요"
-                            value={webhookInput}
-                            onChange={(e) => setWebhookInput(e.target.value)}
-                          />
-                        </div>
+                      {platform.id === "notion" ? (
+                        <>
+                          <div className="space-y-2">
+                            <Label htmlFor="notion-api-token">
+                              API Token *
+                            </Label>
+                            <Input
+                              id="notion-api-token"
+                              type="password"
+                              placeholder="Notion Integration Token을 입력하세요"
+                              value={apiKeyInput}
+                              onChange={(e) => setApiKeyInput(e.target.value)}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              💡 페이지와 데이터베이스는 회의록을 내보낼 때 선택할 수 있습니다
+                            </p>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="space-y-2">
+                            <Label htmlFor={`${platform.id}-api-key`}>
+                              API 키 / 토큰 *
+                            </Label>
+                            <Input
+                              id={`${platform.id}-api-key`}
+                              type="password"
+                              placeholder={`${platform.name} API 키 또는 토큰을 입력하세요`}
+                              value={apiKeyInput}
+                              onChange={(e) => setApiKeyInput(e.target.value)}
+                            />
+                          </div>
+                        </>
                       )}
                     </>
                   )}

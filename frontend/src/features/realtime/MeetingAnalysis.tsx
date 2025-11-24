@@ -380,14 +380,60 @@ export function MeetingAnalysis({ meeting: meetingProp, onUpdateMeeting }: Meeti
 
   // Notion 내보내기 핸들러
   const [isLoadingNotion, setIsLoadingNotion] = useState(false);
+  const [showNotionPageModal, setShowNotionPageModal] = useState(false);
+  const [notionPages, setNotionPages] = useState<Array<{ id: string; title: string }>>([]);
+  const [selectedNotionPage, setSelectedNotionPage] = useState<string>('');
+  const [loadingNotionPages, setLoadingNotionPages] = useState(false);
   
   const handleExportToNotion = async () => {
     try {
+      const { getMyNotionPages, getNotionSettings } = await import('@/features/meetings/reportsService');
+      
+      // Notion 설정 확인
+      try {
+        const settings = await getNotionSettings();
+        if (!settings.is_active) {
+          toast.error('Notion 연동이 비활성화되어 있습니다. 설정 페이지에서 활성화해주세요.');
+          return;
+        }
+      } catch (error: any) {
+        // 404 에러 = 설정이 없음
+        if (error.message.includes('not found') || error.message.includes('404')) {
+          toast.error('Notion 연동을 먼저 설정해주세요. 설정 페이지로 이동합니다.');
+          // 설정 페이지로 이동하는 로직 추가 가능
+          return;
+        }
+        throw error;
+      }
+      
+      // 페이지 선택 모달 열기
+      setShowNotionPageModal(true);
+      setLoadingNotionPages(true);
+      
+      // 페이지 목록 가져오기 (저장된 토큰 사용)
+      const pagesData = await getMyNotionPages();
+      setNotionPages(pagesData.pages || []);
+      setLoadingNotionPages(false);
+    } catch (error: any) {
+      toast.error(`Notion 연동 오류: ${error.message}`);
+      setShowNotionPageModal(false);
+      setLoadingNotionPages(false);
+    }
+  };
+  
+  const confirmNotionExport = async () => {
+    if (!selectedNotionPage) {
+      toast.error('페이지를 선택해주세요');
+      return;
+    }
+    
+    try {
       setIsLoadingNotion(true);
+      setShowNotionPageModal(false);
       toast.info('Notion에 내보내는 중...');
       
       const { exportToNotionComprehensive } = await import('@/features/meetings/reportsService');
-      const result = await exportToNotionComprehensive(meeting.id);
+      const result = await exportToNotionComprehensive(meeting.id, selectedNotionPage);
       
       if (result.success) {
         toast.success('Notion에 회의록이 생성되었습니다!');
@@ -399,13 +445,10 @@ export function MeetingAnalysis({ meeting: meetingProp, onUpdateMeeting }: Meeti
       }
     } catch (error: any) {
       console.error('Notion export error:', error);
-      if (error.message?.includes('설정')) {
-        toast.error('Notion을 먼저 연동해주세요. 환경 변수를 확인하세요.');
-      } else {
-        toast.error(`Notion 내보내기 실패: ${error.message}`);
-      }
+      toast.error(`Notion 내보내기 실패: ${error.message}`);
     } finally {
       setIsLoadingNotion(false);
+      setSelectedNotionPage('');
     }
   };
 
@@ -1471,6 +1514,73 @@ export function MeetingAnalysis({ meeting: meetingProp, onUpdateMeeting }: Meeti
                   자동으로 닫힙니다...
                 </p>
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Notion 페이지 선택 모달 */}
+      {showNotionPageModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Notion 페이지 선택</h3>
+              <button 
+                onClick={() => {
+                  setShowNotionPageModal(false);
+                  setSelectedNotionPage('');
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+            
+            {loadingNotionPages ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto"></div>
+                <p className="text-sm text-gray-600 mt-4">페이지 목록 로딩 중...</p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">
+                    회의록을 생성할 페이지를 선택하세요
+                  </label>
+                  <select
+                    value={selectedNotionPage}
+                    onChange={(e) => setSelectedNotionPage(e.target.value)}
+                    className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="">페이지 선택...</option>
+                    {notionPages.map((page) => (
+                      <option key={page.id} value={page.id}>
+                        {page.title || 'Untitled'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div className="flex gap-2 mt-6">
+                  <Button
+                    onClick={() => {
+                      setShowNotionPageModal(false);
+                      setSelectedNotionPage('');
+                    }}
+                    variant="outline"
+                    className="flex-1"
+                  >
+                    취소
+                  </Button>
+                  <Button
+                    onClick={confirmNotionExport}
+                    disabled={!selectedNotionPage || isLoadingNotion}
+                    className="flex-1"
+                  >
+                    {isLoadingNotion ? '내보내는 중...' : '내보내기'}
+                  </Button>
+                </div>
+              </>
             )}
           </div>
         </div>
