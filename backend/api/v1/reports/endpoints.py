@@ -9,11 +9,9 @@ from backend import models
 from backend.schemas.report import SummaryOut, ActionItemOut, ReportOut
 from backend.core.llm.service import LLMService
 from backend.core.integrations import JiraService, NotionService
+from backend.core.auth.encryption import decrypt_data
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
-
-# 외부 연동 서비스 (Notion만 초기화, Jira는 사용자별로 초기화)
-notion = NotionService()
 
 
 # ============================================
@@ -808,9 +806,33 @@ async def push_action_items_to_jira(
 @router.post("/{meeting_id}/report/to-notion")
 async def push_report_to_notion(
     meeting_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
     """전체 보고서를 Notion으로 전송"""
+    
+    # 사용자 Notion 설정 조회
+    user_id = current_user.USER_ID
+    notion_setting = db.query(models.UserIntegrationSetting).filter(
+        models.UserIntegrationSetting.USER_ID == user_id,
+        models.UserIntegrationSetting.PLATFORM == "notion"
+    ).first()
+    
+    if not notion_setting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notion not configured. Please set up Notion integration in settings."
+        )
+    
+    # Notion 설정 복호화
+    config = notion_setting.CONFIG
+    decrypted_token = decrypt_data(config["api_token"])
+    
+    notion = NotionService(
+        api_token=decrypted_token,
+        parent_page_id=config.get("parent_page_id"),
+        database_id=config.get("database_id")
+    )
     
     summary = db.query(models.Summary).filter(
         models.Summary.MEETING_ID == meeting_id
@@ -844,9 +866,14 @@ async def push_report_to_notion(
 # ============================================
 # 8. Notion 포괄적 회의록 (멘토 피드백 반영) ⭐
 # ============================================
+
+class NotionExportRequest(BaseModel):
+    parent_page_id: Optional[str] = None
+
 @router.post("/{meeting_id}/notion/comprehensive")
 async def push_comprehensive_report_to_notion(
     meeting_id: str,
+    request: NotionExportRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -859,6 +886,9 @@ async def push_comprehensive_report_to_notion(
     - ⚡ 액션 아이템 (담당자, 마감일)
     
     날짜 형식: 2024년 11월 25일 (월) 14:00 - 15:30
+    
+    Request Body:
+    - parent_page_id: 페이지를 생성할 부모 페이지 ID (optional)
     """
     from backend.core.integrations.notion_service import Participant
     
@@ -906,7 +936,31 @@ async def push_comprehensive_report_to_notion(
         )
     ]
     
-    # 5. Notion 페이지 생성
+    # 5. 사용자 Notion 설정 조회
+    user_id = current_user.USER_ID
+    notion_setting = db.query(models.UserIntegrationSetting).filter(
+        models.UserIntegrationSetting.USER_ID == user_id,
+        models.UserIntegrationSetting.PLATFORM == "notion"
+    ).first()
+    
+    if not notion_setting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notion not configured. Please set up Notion integration in settings."
+        )
+    
+    # Notion 설정 복호화
+    config = notion_setting.CONFIG
+    decrypted_token = decrypt_data(config["api_token"])
+    
+    # 요청에서 받은 parent_page_id 사용
+    notion = NotionService(
+        api_token=decrypted_token,
+        parent_page_id=request.parent_page_id,
+        database_id=None
+    )
+    
+    # 6. Notion 페이지 생성
     try:
         result = notion.create_comprehensive_meeting_page(
             meeting_title=meeting.TITLE or f"회의 {meeting_id}",
@@ -943,7 +997,7 @@ async def push_comprehensive_report_to_notion(
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Notion 설정 오류: {str(e)}. 환경 변수를 확인하세요."
+            detail=f"Notion 설정 오류: {str(e)}"
         )
     except Exception as e:
         raise HTTPException(
@@ -955,17 +1009,49 @@ async def push_comprehensive_report_to_notion(
 # ============================================
 # 9. Notion 액션 아이템만 Tasks DB에 추가
 # ============================================
+
+class NotionActionItemsRequest(BaseModel):
+    database_id: Optional[str] = None
+
 @router.post("/{meeting_id}/notion/action-items")
 async def push_action_items_to_notion_db(
     meeting_id: str,
+    request: NotionActionItemsRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
     """
     액션 아이템만 Notion Tasks 데이터베이스에 추가
     
-    환경 변수 필요: NOTION_DATABASE_ID
+    사용자의 Notion 설정 필요
+    
+    Request Body:
+    - database_id: 액션 아이템을 추가할 데이터베이스 ID (optional)
     """
+    
+    # 사용자 Notion 설정 조회
+    user_id = current_user.USER_ID
+    notion_setting = db.query(models.UserIntegrationSetting).filter(
+        models.UserIntegrationSetting.USER_ID == user_id,
+        models.UserIntegrationSetting.PLATFORM == "notion"
+    ).first()
+    
+    if not notion_setting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notion not configured. Please set up Notion integration in settings."
+        )
+    
+    # Notion 설정 복호화
+    config = notion_setting.CONFIG
+    decrypted_token = decrypt_data(config["api_token"])
+    
+    # 요청에서 받은 database_id 사용
+    notion = NotionService(
+        api_token=decrypted_token,
+        parent_page_id=None,
+        database_id=request.database_id
+    )
     
     # 회의 확인
     meeting = db.query(models.Meeting).filter(
@@ -1014,7 +1100,7 @@ async def push_action_items_to_notion_db(
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Notion 설정 오류: {str(e)}. NOTION_DATABASE_ID를 확인하세요."
+            detail=f"Notion 설정 오류: {str(e)}"
         )
     except Exception as e:
         raise HTTPException(

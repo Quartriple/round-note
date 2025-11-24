@@ -247,6 +247,145 @@ export const deleteJiraSettings = async (): Promise<{ message: string }> => {
 };
 
 /**
+ * Notion 설정 저장 (API 토큰만)
+ */
+export const saveNotionSettings = async (settings: {
+  api_token: string;
+}): Promise<{ message: string }> => {
+  const response = await fetch(`${API_URL}/api/v1/settings/notion`, 
+    getFetchOptions({
+      method: 'POST',
+      body: JSON.stringify(settings),
+    })
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to save Notion settings' }));
+    throw new Error(error.detail || 'Failed to save Notion settings');
+  }
+
+  return response.json();
+};
+
+/**
+ * Notion 설정 조회 (연동 상태만)
+ */
+export const getNotionSettings = async (): Promise<{
+  is_active: boolean;
+  created_dt?: string;
+  updated_dt?: string;
+}> => {
+  const response = await fetch(`${API_URL}/api/v1/settings/notion`, 
+    getFetchOptions({ method: 'GET' })
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Notion settings not found' }));
+    throw new Error(error.detail || 'Notion settings not found');
+  }
+
+  return response.json();
+};
+
+/**
+ * Notion 설정 삭제
+ */
+export const deleteNotionSettings = async (): Promise<{ message: string }> => {
+  const response = await fetch(`${API_URL}/api/v1/settings/notion`, 
+    getFetchOptions({ method: 'DELETE' })
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to delete Notion settings' }));
+    throw new Error(error.detail || 'Failed to delete Notion settings');
+  }
+
+  return response.json();
+};
+
+/**
+ * Notion 페이지 목록 조회 (연동 전 - API 토큰 검증용)
+ */
+export const searchNotionPages = async (apiToken: string): Promise<{
+  pages: Array<{ id: string; title: string; url: string }>;
+  count: number;
+}> => {
+  const response = await fetch(`${API_URL}/api/v1/settings/notion/pages`, 
+    getFetchOptions({
+      method: 'POST',
+      body: JSON.stringify({ api_token: apiToken }),
+    })
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch Notion pages' }));
+    throw new Error(error.detail || 'Failed to fetch Notion pages');
+  }
+
+  return response.json();
+};
+
+/**
+ * Notion 데이터베이스 목록 조회 (연동 전 - API 토큰 검증용)
+ */
+export const searchNotionDatabases = async (apiToken: string): Promise<{
+  databases: Array<{ id: string; title: string; url: string }>;
+  count: number;
+}> => {
+  const response = await fetch(`${API_URL}/api/v1/settings/notion/databases`, 
+    getFetchOptions({
+      method: 'POST',
+      body: JSON.stringify({ api_token: apiToken }),
+    })
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch Notion databases' }));
+    throw new Error(error.detail || 'Failed to fetch Notion databases');
+  }
+
+  return response.json();
+};
+
+/**
+ * 내 Notion 페이지 목록 조회 (연동 후 - 저장된 토큰 사용)
+ */
+export const getMyNotionPages = async (): Promise<{
+  pages: Array<{ id: string; title: string; url: string }>;
+  count: number;
+}> => {
+  const response = await fetch(`${API_URL}/api/v1/settings/notion/my-pages`, 
+    getFetchOptions({ method: 'GET' })
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch my Notion pages' }));
+    throw new Error(error.detail || 'Failed to fetch my Notion pages');
+  }
+
+  return response.json();
+};
+
+/**
+ * 내 Notion 데이터베이스 목록 조회 (연동 후 - 저장된 토큰 사용)
+ */
+export const getMyNotionDatabases = async (): Promise<{
+  databases: Array<{ id: string; title: string; url: string }>;
+  count: number;
+}> => {
+  const response = await fetch(`${API_URL}/api/v1/settings/notion/my-databases`, 
+    getFetchOptions({ method: 'GET' })
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch my Notion databases' }));
+    throw new Error(error.detail || 'Failed to fetch my Notion databases');
+  }
+
+  return response.json();
+};
+
+/**
  * Jira 프로젝트의 담당 가능한 사용자 목록 조회
  */
 export const getJiraProjectUsers = async (projectKey: string): Promise<{
@@ -464,7 +603,10 @@ export const pushToNotion = async (meetingId: string): Promise<any> => {
  * - 참석자, 요약, 액션 아이템 필수 포함
  * - 날짜 형식: 2024년 11월 25일 (월) 14:00 - 15:30
  */
-export const exportToNotionComprehensive = async (meetingId: string): Promise<{
+export const exportToNotionComprehensive = async (
+  meetingId: string,
+  parentPageId?: string
+): Promise<{
   success: boolean;
   notion_page_id: string;
   notion_url: string;
@@ -478,6 +620,8 @@ export const exportToNotionComprehensive = async (meetingId: string): Promise<{
   const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/notion/comprehensive`, {
     method: 'POST',
     headers: getHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ parent_page_id: parentPageId }),
   });
 
   if (!response.ok) {
@@ -491,7 +635,10 @@ export const exportToNotionComprehensive = async (meetingId: string): Promise<{
 /**
  * Notion에 액션 아이템만 내보내기
  */
-export const exportActionItemsToNotion = async (meetingId: string): Promise<{
+export const exportActionItemsToNotion = async (
+  meetingId: string,
+  databaseId?: string
+): Promise<{
   success: boolean;
   created_count: number;
   items: Array<{ id: string; url: string }>;
@@ -500,6 +647,8 @@ export const exportActionItemsToNotion = async (meetingId: string): Promise<{
   const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/notion/action-items`, {
     method: 'POST',
     headers: getHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ database_id: databaseId }),
   });
 
   if (!response.ok) {
