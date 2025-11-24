@@ -170,7 +170,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
             httponly=True,
             secure=is_production,  # 프로덕션에서만 HTTPS 강제
             samesite="lax",
-            max_age=1800
+            max_age=1800  # 30분 (초 단위)
         )
         return response
         

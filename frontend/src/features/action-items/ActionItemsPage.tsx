@@ -93,16 +93,13 @@ export function ActionItemsPage({ meetings: meetingsProp, onUpdateMeeting }: Act
 
     // 백엔드 동기화
     try {
-      const token = localStorage.getItem('access_token');
-      if (!token) return;
-
       const newStatus = newCompleted ? 'DONE' : 'TODO';
       await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/reports/${meetingId}/action-items/${itemId}`, {
         method: 'PATCH',
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify({ status: newStatus }),
       });
     } catch (error) {
@@ -129,9 +126,6 @@ export function ActionItemsPage({ meetings: meetingsProp, onUpdateMeeting }: Act
 
     // 백엔드 동기화
     try {
-      const token = localStorage.getItem('access_token');
-      if (!token) return;
-
       const updates: any = {};
       if (field === 'assignee') {
         updates.assignee_name = value;
@@ -144,9 +138,9 @@ export function ActionItemsPage({ meetings: meetingsProp, onUpdateMeeting }: Act
       await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/reports/${meetingId}/action-items/${itemId}`, {
         method: 'PATCH',
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify(updates),
       });
     } catch (error) {

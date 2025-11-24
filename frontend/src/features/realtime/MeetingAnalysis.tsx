@@ -410,11 +410,8 @@ export function MeetingAnalysis({ meeting: meetingProp, onUpdateMeeting }: Meeti
       console.log('[Jira Sync] onUpdateMeeting exists:', !!onUpdateMeeting);
       if (onUpdateMeeting) {
         try {
-          const token = localStorage.getItem('access_token');
           const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/meetings/${meeting.id}`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
+            credentials: 'include'
           });
           
           if (response.ok) {
