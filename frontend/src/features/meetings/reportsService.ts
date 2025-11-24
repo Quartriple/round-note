@@ -188,17 +188,242 @@ export const chatWithMeeting = async (
 };
 
 /**
- * Jira로 액션 아이템 내보내기
+ * Jira 설정 저장
  */
-export const pushToJira = async (meetingId: string): Promise<{ created: any[]; count: number }> => {
+export const saveJiraSettings = async (settings: {
+  base_url: string;
+  email: string;
+  api_token: string;
+  default_project_key?: string;
+}): Promise<{ message: string; projects_found: number }> => {
+  const response = await fetch(`${API_URL}/api/v1/settings/jira`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(settings),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to save Jira settings' }));
+    throw new Error(error.detail || 'Failed to save Jira settings');
+  }
+
+  return response.json();
+};
+
+/**
+ * Jira 설정 조회
+ */
+export const getJiraSettings = async (): Promise<{
+  base_url: string;
+  email: string;
+  default_project_key?: string;
+  is_active: boolean;
+}> => {
+  const response = await fetch(`${API_URL}/api/v1/settings/jira`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Jira settings not found' }));
+    throw new Error(error.detail || 'Jira settings not found');
+  }
+
+  return response.json();
+};
+
+/**
+ * Jira 설정 삭제
+ */
+export const deleteJiraSettings = async (): Promise<{ message: string }> => {
+  const response = await fetch(`${API_URL}/api/v1/settings/jira`, {
+    method: 'DELETE',
+    headers: getHeaders(),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to delete Jira settings' }));
+    throw new Error(error.detail || 'Failed to delete Jira settings');
+  }
+
+  return response.json();
+};
+
+/**
+ * Jira 프로젝트의 담당 가능한 사용자 목록 조회
+ */
+export const getJiraProjectUsers = async (projectKey: string): Promise<{
+  users: Array<{
+    account_id: string;
+    display_name: string;
+    email: string;
+    avatar_url?: string;
+  }>;
+}> => {
+  const response = await fetch(`${API_URL}/api/v1/settings/jira/projects/${projectKey}/users`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch Jira users' }));
+    throw new Error(error.detail || 'Failed to fetch Jira users');
+  }
+
+  return response.json();
+};
+
+/**
+ * Jira 프로젝트의 우선순위 목록 조회
+ */
+export const getJiraPriorities = async (projectKey: string): Promise<{
+  priorities: Array<{
+    id: string;
+    name: string;
+    icon_url?: string;
+    description: string;
+  }>;
+}> => {
+  const response = await fetch(`${API_URL}/api/v1/settings/jira/projects/${projectKey}/priorities`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch Jira priorities' }));
+    throw new Error(error.detail || 'Failed to fetch Jira priorities');
+  }
+
+  return response.json();
+};
+
+/**
+ * Jira 프로젝트 목록 조회
+ */
+export const getJiraProjects = async (): Promise<{
+  projects: Array<{ key: string; name: string; id: string }>;
+  default_project_key?: string;
+}> => {
+  const response = await fetch(`${API_URL}/api/v1/settings/jira/projects`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch Jira projects' }));
+    throw new Error(error.detail || 'Failed to fetch Jira projects');
+  }
+
+  return response.json();
+};
+
+/**
+ * Jira로 액션 아이템 내보내기 (프로젝트 선택)
+ */
+export const pushToJira = async (
+  meetingId: string,
+  projectKey: string
+): Promise<{
+  message: string;
+  project_key: string;
+  created: Array<{ item_id: string; issue_key: string; action: string }>;
+  updated: Array<{ item_id: string; issue_key: string; action: string }>;
+  failed: Array<{ item_id: string; title: string; error: string }>;
+  summary: {
+    total: number;
+    created_count: number;
+    updated_count: number;
+    failed_count: number;
+  };
+}> => {
   const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/action-items/to-jira`, {
     method: 'POST',
     headers: getHeaders(),
+    body: JSON.stringify({ project_key: projectKey }),
   });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to push to Jira' }));
     throw new Error(error.detail || 'Failed to push to Jira');
+  }
+
+  return response.json();
+};
+
+/**
+ * 액션 아이템 생성
+ */
+export const createActionItem = async (
+  meetingId: string,
+  item: {
+    title: string;
+    description?: string;
+    due_dt?: string;
+    priority?: string;
+    assignee_id?: string;
+  }
+): Promise<any> => {
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/action-items`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(item),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to create action item' }));
+    throw new Error(error.detail || 'Failed to create action item');
+  }
+
+  return response.json();
+};
+
+/**
+ * 액션 아이템 수정
+ */
+export const updateActionItem = async (
+  meetingId: string,
+  itemId: string,
+  updates: {
+    title?: string;
+    description?: string;
+    due_dt?: string;
+    priority?: string;
+    status?: string;
+    assignee_id?: string;
+    assignee_name?: string;
+    jira_assignee_id?: string;
+  }
+): Promise<any> => {
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/action-items/${itemId}`, {
+    method: 'PATCH',
+    headers: getHeaders(),
+    body: JSON.stringify(updates),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to update action item' }));
+    const errorMessage = typeof error.detail === 'string' ? error.detail : JSON.stringify(error);
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
+};
+
+/**
+ * 액션 아이템 삭제
+ */
+export const deleteActionItem = async (
+  meetingId: string,
+  itemId: string
+): Promise<{ message: string; item_id: string }> => {
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/action-items/${itemId}`, {
+    method: 'DELETE',
+    headers: getHeaders(),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to delete action item' }));
+    throw new Error(error.detail || 'Failed to delete action item');
   }
 
   return response.json();

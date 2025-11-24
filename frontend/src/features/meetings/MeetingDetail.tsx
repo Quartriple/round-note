@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/card';
 import { Button } from '@/shared/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
@@ -61,11 +61,20 @@ interface MeetingDetailProps {
 }
 
 export function MeetingDetail({
-  meeting,
+  meeting: meetingProp,
   onUpdateMeeting,
   onDeleteMeeting,
   onClose,
 }: MeetingDetailProps) {
+  // 로컬 상태로 meeting 관리하여 즉시 업데이트 반영
+  const [meeting, setMeeting] = useState(meetingProp);
+  
+  // meeting prop이 변경되면 로컬 상태도 업데이트
+  React.useEffect(() => {
+    console.log('[MeetingDetail] Meeting prop updated:', meetingProp);
+    setMeeting(meetingProp);
+  }, [meetingProp]);
+  
   const [activeTab, setActiveTab] = useState('basic');
 
   // Refs for scroll navigation
@@ -166,20 +175,84 @@ export function MeetingDetail({
     }
   };
 
-  const handleToggleActionItem = (actionItemId: string) => {
-    const updatedActionItems = meeting.actionItems.map(item =>
-      item.id === actionItemId ? { ...item, completed: !item.completed } : item
-    );
+  const handleToggleActionItem = async (actionItemId: string) => {
+    const item = meeting.actionItems.find(item => item.id === actionItemId);
+    if (!item) return;
 
-    onUpdateMeeting({ ...meeting, actionItems: updatedActionItems });
+    const newCompleted = !item.completed;
+    
+    // 로컬 상태 즉시 업데이트 (UI 반응성)
+    const updatedActionItems = meeting.actionItems.map(item =>
+      item.id === actionItemId ? { ...item, completed: newCompleted } : item
+    );
+    const updatedMeeting = { ...meeting, actionItems: updatedActionItems };
+    
+    // 로컬 meeting state 업데이트
+    setMeeting(updatedMeeting);
+    console.log('[MeetingDetail] Local meeting state updated (toggle)');
+    
+    // 부모에게 전파
+    onUpdateMeeting(updatedMeeting);
+
+    // 백엔드 동기화
+    try {
+      const token = localStorage.getItem('access_token');
+      if (!token) return;
+
+      const newStatus = newCompleted ? 'DONE' : 'TODO';
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/reports/${meeting.id}/action-items/${actionItemId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+    } catch (error) {
+      console.error('Failed to toggle action item:', error);
+    }
   };
 
-  const handleUpdateActionItem = (actionItemId: string, field: keyof ActionItem, value: string) => {
+  const handleUpdateActionItem = async (actionItemId: string, field: keyof ActionItem, value: string) => {
+    // 로컬 상태 즉시 업데이트 (UI 반응성)
     const updatedActionItems = meeting.actionItems.map(item =>
       item.id === actionItemId ? { ...item, [field]: value } : item
     );
+    const updatedMeeting = { ...meeting, actionItems: updatedActionItems };
+    
+    // 로컬 meeting state 업데이트
+    setMeeting(updatedMeeting);
+    console.log('[MeetingDetail] Local meeting state updated (field update)');
+    
+    // 부모에게 전파
+    onUpdateMeeting(updatedMeeting);
 
-    onUpdateMeeting({ ...meeting, actionItems: updatedActionItems });
+    // 백엔드 동기화
+    try {
+      const token = localStorage.getItem('access_token');
+      if (!token) return;
+
+      const updates: any = {};
+      
+      if (field === 'assignee') {
+        updates.assignee_name = value;
+      } else if (field === 'dueDate') {
+        updates.due_dt = value;
+      } else if (field === 'text') {
+        updates.title = value;
+      }
+
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/reports/${meeting.id}/action-items/${actionItemId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      });
+    } catch (error) {
+      console.error('Failed to update action item:', error);
+    }
   };
 
   const calculateProgress = () => {
@@ -650,8 +723,13 @@ export function MeetingDetail({
                                   담당자
                                 </label>
                                 <Input
-                                  value={item.assignee}
-                                  onChange={(e) => handleUpdateActionItem(item.id, 'assignee', e.target.value)}
+                                  key={`assignee-${item.id}`}
+                                  defaultValue={item.assignee}
+                                  onBlur={(e) => {
+                                    if (e.target.value !== item.assignee) {
+                                      handleUpdateActionItem(item.id, 'assignee', e.target.value);
+                                    }
+                                  }}
                                   placeholder="담당자 이름"
                                   className="h-8 md:h-9 text-sm"
                                 />
@@ -663,7 +741,8 @@ export function MeetingDetail({
                                 </label>
                                 <Input
                                   type="date"
-                                  value={item.dueDate}
+                                  key={`duedate-${item.id}`}
+                                  defaultValue={item.dueDate}
                                   onChange={(e) => handleUpdateActionItem(item.id, 'dueDate', e.target.value)}
                                   className="h-8 md:h-9 text-sm"
                                 />
@@ -873,7 +952,15 @@ export function MeetingDetail({
                           {...(audioSrc && { src: audioSrc })}
                           controls
                           className="w-full"
-                          onError={(e) => console.error('[MeetingDetail] Audio load error:', e)}
+                          onError={(e) => {
+                            const target = e.target as HTMLAudioElement;
+                            console.error('[MeetingDetail] Audio load error:', {
+                              src: target.src,
+                              error: target.error,
+                              networkState: target.networkState,
+                              readyState: target.readyState
+                            });
+                          }}
                         />
                       </div>
                       <p className="text-xs text-gray-500">
@@ -895,7 +982,16 @@ export function MeetingDetail({
         </TabsContent>
 
         <TabsContent value="analysis" className="mt-6">
-          <MeetingAnalysis meeting={meeting} onUpdateMeeting={onUpdateMeeting} />
+          <MeetingAnalysis 
+            meeting={meeting} 
+            onUpdateMeeting={(updatedMeeting) => {
+              // 로컬 상태 즉시 업데이트
+              setMeeting(updatedMeeting);
+              console.log('[MeetingDetail] Local meeting state updated');
+              // 부모에게 전파
+              onUpdateMeeting(updatedMeeting);
+            }} 
+          />
         </TabsContent>
       </Tabs>
       

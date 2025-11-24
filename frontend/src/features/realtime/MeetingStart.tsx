@@ -172,12 +172,17 @@ export function MeetingStart({ meetings, onAddMeeting }: MeetingStartProps) {
         // 액션 아이템 변환
         if (endResult.action_items && Array.isArray(endResult.action_items)) {
           actionItems = endResult.action_items.map((item: any, index: number) => ({
-            id: `${Date.now()}-${index}`,
-            text: item.task || '',
+            id: item.item_id || `${Date.now()}-${index}`,
+            item_id: item.item_id,
+            text: item.title || item.task || '',
+            title: item.title || item.task || '',
+            description: item.description || '',
             assignee: item.assignee || '미정',
             dueDate: item.deadline || '',
-            completed: false,
-            priority: 'medium'
+            due_date: item.deadline,
+            completed: item.status === 'DONE',
+            priority: (item.priority || 'MEDIUM').toLowerCase(),
+            jira_assignee_id: item.jira_assignee_id || ''
           }));
         }
         
