@@ -24,10 +24,18 @@ function float32ToInt16(float32Array: Float32Array): Int16Array {
     return int16Array;
 }
 
+export interface TranscriptSegment {
+    id: string;
+    timestamp: string;
+    speaker: string;
+    text: string;
+    isFinal: boolean;
+}
+
 interface RealtimeStreamControls {
     isRecording: boolean;
     isPaused: boolean;
-    transcript: string;
+    transcript: TranscriptSegment[];
     partialText: string;
     translation: string;
     startRecording: () => Promise<void>;
@@ -41,7 +49,7 @@ const useRealtimeStream = (): RealtimeStreamControls => {
     // 1. 상태 정의
     const [isRecording, setIsRecording] = useState<boolean>(false);
     const [isPaused, setIsPaused] = useState<boolean>(false);
-    const [transcript, setTranscript] = useState<string>('');
+    const [transcript, setTranscript] = useState<TranscriptSegment[]>([]);
     const [partialText, setPartialText] = useState<string>('');
     const [translation, setTranslation] = useState<string>('');
 
@@ -288,10 +296,18 @@ const useRealtimeStream = (): RealtimeStreamControls => {
 
                         case 'final_transcript':
                             console.log("최종 전사:", message.text);
-                            setTranscript(prev => {
-                                const newText = prev ? prev + '\n' + message.text : message.text;
-                                return newText;
-                            });
+                            const now = new Date();
+                            const timeString = `${now.getHours().toString().padStart(2, '0')}시 ${now.getMinutes().toString().padStart(2, '0')}분`;
+
+                            const newSegment: TranscriptSegment = {
+                                id: Date.now().toString(),
+                                timestamp: timeString,
+                                speaker: "Speaker 1", // TODO: 백엔드에서 화자 정보가 오면 수정
+                                text: message.text,
+                                isFinal: true
+                            };
+
+                            setTranscript(prev => [...prev, newSegment]);
                             setPartialText('');
                             break;
 
@@ -334,7 +350,9 @@ const useRealtimeStream = (): RealtimeStreamControls => {
 
                 if (isRecordingRef.current) {
                     setIsRecording(false);
-                    setTranscript(prev => prev + `\n[서버 연결 종료 - Code: ${event.code}, ${closeReason}]`);
+                    // 연결 종료 시 에러 메시지를 세그먼트로 추가할지 여부는 선택사항. 
+                    // 여기서는 로그만 남기고 UI에는 표시하지 않거나, 필요시 시스템 메시지로 추가 가능.
+                    // setTranscript(prev => [...prev, { id: 'sys', timestamp: '', speaker: 'System', text: `[서버 연결 종료 - Code: ${event.code}]`, isFinal: true }]);
                 }
             };
 
@@ -350,13 +368,14 @@ const useRealtimeStream = (): RealtimeStreamControls => {
             }
 
             setIsRecording(true);
-            setTranscript('🎙️ 실시간 전사를 시작합니다.');
+            // 초기화: 이전 대화 내용을 지우지 않고 유지하거나, 필요시 초기화. 
+            // 여기서는 startRecording 시 초기화하지 않고 이어서 보여줌 (사용자 경험상 끊겼다 다시 해도 이어지는게 나을 수 있음)
+            // 만약 매번 새로 시작하려면 setTranscript([]) 호출.
 
         } catch (e: unknown) {
             console.error("녹음 시작 오류:", e);
             cleanupResources();
             setIsRecording(false);
-            setTranscript('❌ 녹음 시작 실패: ' + (e instanceof Error ? e.message : "알 수 없는 오류"));
         }
     }, [vadLoading, vadStart, cleanupResources]);
 
@@ -373,7 +392,8 @@ const useRealtimeStream = (): RealtimeStreamControls => {
         setIsRecording(false);
         setIsPaused(false); // 일시정지 상태도 리셋
         setPartialText('');
-        setTranscript(prev => prev + '\n[녹음 종료]');
+        // 종료 메시지 추가 (선택사항)
+        // setTranscript(prev => [...prev, { id: 'end', timestamp: '', speaker: 'System', text: '[녹음 종료]', isFinal: true }]);
         console.log("녹음 중지 완료");
 
     }, [isRecording, cleanupResources]);
