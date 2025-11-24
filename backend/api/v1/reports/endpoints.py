@@ -231,7 +231,15 @@ async def update_action_item(
     if updates.description is not None:
         item.DESCRIPTION = updates.description
     if updates.due_dt is not None:
-        item.DUE_DT = datetime.fromisoformat(updates.due_dt) if updates.due_dt else None
+        # 날짜 파싱: 빈 문자열, '미정', 잘못된 형식 처리
+        if updates.due_dt and updates.due_dt.strip() and updates.due_dt not in ['미정', 'undefined', 'null']:
+            try:
+                item.DUE_DT = datetime.fromisoformat(updates.due_dt)
+            except ValueError as e:
+                print(f"[WARNING] Invalid date format: {updates.due_dt}, error: {e}")
+                item.DUE_DT = None
+        else:
+            item.DUE_DT = None
     if updates.priority is not None:
         item.PRIORITY = updates.priority
     if updates.status is not None:

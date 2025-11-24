@@ -334,12 +334,30 @@ export function MeetingAnalysis({ meeting: meetingProp, onUpdateMeeting }: Meeti
       // 편집 모달 준비
       const itemsForEdit = meeting.actionItems.map(item => {
         const itemId = item.item_id || item.id;
+        
+        // 날짜 필드 정규화: ISO 형식 또는 YYYY-MM-DD 형식만 허용
+        let normalizedDate = '';
+        const rawDate = item.due_date || item.dueDate || '';
+        if (rawDate && typeof rawDate === 'string' && rawDate !== '미정') {
+          // ISO 형식(YYYY-MM-DDTHH:mm:ss)을 YYYY-MM-DD로 변환
+          if (rawDate.includes('T')) {
+            normalizedDate = rawDate.split('T')[0];
+          } 
+          // YYYY-MM-DD 형식 검증
+          else if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+            normalizedDate = rawDate;
+          }
+        }
+        
         console.log('[Jira Edit] Item mapping:', { 
           original: item, 
           item_id: item.item_id, 
           id: item.id, 
-          using: itemId 
+          using: itemId,
+          raw_date: rawDate,
+          normalized_date: normalizedDate
         });
+        
         return {
           item_id: itemId,
           title: item.title || item.text,
@@ -347,7 +365,7 @@ export function MeetingAnalysis({ meeting: meetingProp, onUpdateMeeting }: Meeti
           assignee_name: item.assignee || '',
           jira_assignee_id: item.jira_assignee_id || '',
           priority: item.priority || 'MEDIUM',
-          due_dt: item.due_date || item.dueDate || ''
+          due_dt: normalizedDate
         };
       });
       
@@ -1206,6 +1224,10 @@ export function MeetingAnalysis({ meeting: meetingProp, onUpdateMeeting }: Meeti
                       const { updateActionItem } = await import('@/features/meetings/reportsService');
                       
                       setLoadingJiraData(true);
+                      let successCount = 0;
+                      let failedCount = 0;
+                      const errors: Array<{ item: string; error: string }> = [];
+                      
                       for (const item of jiraEditItems) {
                         console.log('[Jira Update] Updating item:', item.item_id, 'for meeting:', meeting.id);
                         console.log('[Jira Update] Item data:', {
@@ -1215,19 +1237,46 @@ export function MeetingAnalysis({ meeting: meetingProp, onUpdateMeeting }: Meeti
                         });
                         
                         try {
+                          // 날짜 검증: 빈 문자열이나 잘못된 값은 undefined로 전송
+                          let validDueDate: string | undefined = undefined;
+                          if (item.due_dt && item.due_dt.trim() && item.due_dt !== '미정') {
+                            // YYYY-MM-DD 형식 검증
+                            const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+                            if (dateRegex.test(item.due_dt)) {
+                              validDueDate = item.due_dt;
+                            } else {
+                              console.warn('[Jira Update] Invalid date format:', item.due_dt);
+                            }
+                          }
+                          
                           await updateActionItem(meeting.id, item.item_id, {
                             title: item.title,
                             description: item.description,
                             assignee_name: item.assignee_name || '미지정',
                             jira_assignee_id: item.jira_assignee_id || null,
                             priority: item.priority,
-                            due_dt: item.due_dt || undefined
+                            due_dt: validDueDate
                           });
                           console.log('[Jira Update] Success for item:', item.item_id);
-                        } catch (err) {
+                          successCount++;
+                        } catch (err: any) {
                           console.error('[Jira Update] Failed for item:', item.item_id, err);
-                          throw err;
+                          failedCount++;
+                          errors.push({
+                            item: item.title || item.item_id,
+                            error: err.message || String(err)
+                          });
                         }
+                      }
+                      
+                      // 일부 성공 시에도 계속 진행
+                      if (failedCount > 0) {
+                        console.warn(`[Jira Update] ${failedCount} items failed, ${successCount} succeeded`);
+                        toast.warning(`${successCount}개 업데이트 성공, ${failedCount}개 실패`);
+                        // 에러 상세 표시
+                        errors.forEach(({ item, error }) => {
+                          console.error(`[Jira Update] ${item}: ${error}`);
+                        });
                       }
                       
                       // 회의 데이터 새로고침
@@ -1279,14 +1328,20 @@ export function MeetingAnalysis({ meeting: meetingProp, onUpdateMeeting }: Meeti
                         console.warn('[Jira Edit] onUpdateMeeting is not provided');
                       }
                       
-                      toast.success('액션 아이템이 업데이트되었습니다');
+                      // 성공한 경우에만 성공 메시지
+                      if (successCount > 0 && failedCount === 0) {
+                        toast.success('액션 아이템이 업데이트되었습니다');
+                      }
+                      
                       setShowJiraEditModal(false);
                       
-                      // 동기화 모달 표시
-                      setShowJiraModal(true);
+                      // 일부 성공이라도 동기화 모달 표시
+                      if (successCount > 0) {
+                        setShowJiraModal(true);
+                      }
                     } catch (error) {
-                      console.error('Failed to update action items:', error);
-                      toast.error('액션 아이템 업데이트 실패');
+                      console.error('Unexpected error during update:', error);
+                      toast.error('예상치 못한 오류가 발생했습니다');
                     } finally {
                       setLoadingJiraData(false);
                     }

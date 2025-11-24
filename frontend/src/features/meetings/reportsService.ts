@@ -394,19 +394,35 @@ export const updateActionItem = async (
     jira_assignee_id?: string;
   }
 ): Promise<any> => {
-  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/action-items/${itemId}`, {
-    method: 'PATCH',
-    headers: getHeaders(),
-    body: JSON.stringify(updates),
-  });
+  const url = `${API_URL}/api/v1/reports/${meetingId}/action-items/${itemId}`;
+  console.log('[updateActionItem] Request:', { url, meetingId, itemId, updates });
+  
+  try {
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(updates),
+    });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Failed to update action item' }));
-    const errorMessage = typeof error.detail === 'string' ? error.detail : JSON.stringify(error);
-    throw new Error(errorMessage);
+    console.log('[updateActionItem] Response status:', response.status, response.statusText);
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to update action item' }));
+      const errorMessage = typeof error.detail === 'string' ? error.detail : JSON.stringify(error);
+      console.error('[updateActionItem] Error response:', error);
+      throw new Error(errorMessage);
+    }
+
+    const result = await response.json();
+    console.log('[updateActionItem] Success:', result);
+    return result;
+  } catch (error) {
+    console.error('[updateActionItem] Network error:', error);
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error(`네트워크 오류: 백엔드 서버에 연결할 수 없습니다. URL: ${url}`);
+    }
+    throw error;
   }
-
-  return response.json();
 };
 
 /**
