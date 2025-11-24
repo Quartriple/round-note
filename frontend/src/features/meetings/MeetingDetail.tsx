@@ -346,7 +346,7 @@ export function MeetingDetail({
           </TabsTrigger>
           <TabsTrigger value="analysis" className="gap-1 md:gap-2 text-sm md:text-base">
             <Brain className="w-4 h-4" />
-            <span className="hidden sm:inline">심층 분석</span>
+            <span className="hidden sm:inline">액션 및 분석</span>
             <span className="sm:hidden">분석</span>
           </TabsTrigger>
         </TabsList>
@@ -465,7 +465,7 @@ export function MeetingDetail({
                         className="gap-2"
                       >
                         <Settings className="w-4 h-4" />
-                        <span className="hidden sm:inline">설정</span>
+                        <span className="hidden sm:inline">수정</span>
                       </Button>
                       <CollapsibleTrigger asChild>
                         <Button variant="ghost" size="sm">

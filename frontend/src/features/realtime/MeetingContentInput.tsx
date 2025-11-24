@@ -40,14 +40,21 @@ import {
   SelectValue,
 } from '@/shared/ui/select';
 import { toast } from 'sonner';
+import type { Meeting } from "@/features/dashboard/Dashboard";
 
 interface MeetingContentInputProps {
-  meetingInfo: { title: string; date: string; purpose?: string; participants?: string };
+  meetingInfo: { 
+    title: string; 
+    date: string; 
+    purpose?: string; 
+    participants?: string 
+  };
   onComplete: (content: string, aiAnalysis?: any) => void;
   onBack: () => void;
+  meetings: Meeting[];   // ← 여기 추가
 }
 
-export function MeetingContentInput({ meetingInfo, onComplete, onBack }: MeetingContentInputProps) {
+export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings }: MeetingContentInputProps) {
   // useRealtimeStream hook 사용
   const {
     isRecording,
@@ -88,6 +95,24 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
   const [audioUrl, setAudioUrl] = useState<string>('');
   const audioRecordingRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+
+  // 임시 제목 생성 함수
+  const generateDefaultTitle = (meetings: Meeting[]): string => {
+    const now = new Date();
+
+    const dateStr = now.toLocaleDateString("ko-KR", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    }); // "2025년 11월 24일"
+
+    const timeStr = `${String(now.getHours()).padStart(2, "0")}시`;
+
+    const todayISO = now.toISOString().split("T")[0];
+    const count = meetings.filter((m) => m.date === todayISO).length + 1;
+
+    return `${dateStr} ${timeStr} 회의(${count})`;
+  };
 
   // Load translation settings
   useEffect(() => {
@@ -432,7 +457,7 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
               value={editableTitle}
               onChange={(e) => setEditableTitle(e.target.value)}
               className="text-xl md:text-2xl border-none p-0 w-1000px h-auto focus-visible:ring-0 focus-visible:ring-offset-0 font-semibold text-slate-800 placeholder:text-slate-400 flex-1"
-              placeholder="회의 제목을 입력하세요"
+              placeholder={generateDefaultTitle(meetings)}   // ← 임시 제목 자동 반영
             />
           </div>
           
