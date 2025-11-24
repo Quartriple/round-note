@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/card';
 import { Button } from '@/shared/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   ListChecks,
   Download,
+  ExternalLink,
   Trash2,
   ArrowLeft,
   MoreVertical,
@@ -60,11 +61,20 @@ interface MeetingDetailProps {
 }
 
 export function MeetingDetail({
-  meeting,
+  meeting: meetingProp,
   onUpdateMeeting,
   onDeleteMeeting,
   onClose,
 }: MeetingDetailProps) {
+  // 로컬 상태로 meeting 관리하여 즉시 업데이트 반영
+  const [meeting, setMeeting] = useState(meetingProp);
+  
+  // meeting prop이 변경되면 로컬 상태도 업데이트
+  React.useEffect(() => {
+    console.log('[MeetingDetail] Meeting prop updated:', meetingProp);
+    setMeeting(meetingProp);
+  }, [meetingProp]);
+  
   const [activeTab, setActiveTab] = useState('basic');
 
   // Refs for scroll navigation
@@ -81,10 +91,37 @@ export function MeetingDetail({
 
   // Translation states
   const [summaryLang, setSummaryLang] = useState('ko');
-  const [contentLang, setContentLang] = useState('ko');
+  const [contentLang, setContentLang] = useState(() => {
+    // localStorage에서 마지막 선택 언어 불러오기
+    const savedLang = localStorage.getItem(`meeting-${meeting.id}-content-lang`);
+    return savedLang || 'ko';
+  });
   const [translatedSummary, setTranslatedSummary] = useState('');
   const [translatedContent, setTranslatedContent] = useState('');
   const [isTranslating, setIsTranslating] = useState(false);
+  
+  // 번역 캐시 (언어별로 저장)
+  const [translationCache, setTranslationCache] = useState<{
+    summary: Record<string, string>;
+    content: Record<string, string>;
+  }>({
+    summary: {},
+    content: {}
+  });
+  
+  // 원문 언어 (현재는 한국어로 고정, 추후 설정에서 변경 가능)
+  const sourceLang = 'ko';
+  
+  // 언어 코드 매핑
+  const langMap: Record<string, { code: string; name: string; fullName: string }> = {
+    'ko': { code: 'ko', name: '한국어', fullName: 'Korean' },
+    'en': { code: 'en', name: 'English', fullName: 'English' },
+    'ja': { code: 'ja', name: '日本語', fullName: 'Japanese' },
+    'zh': { code: 'zh', name: '中文', fullName: 'Chinese' },
+    'es': { code: 'es', name: 'Español', fullName: 'Spanish' },
+    'fr': { code: 'fr', name: 'Français', fullName: 'French' },
+    'de': { code: 'de', name: 'Deutsch', fullName: 'German' },
+  };
 
   // Audio states
   const [isPlaying, setIsPlaying] = useState(false);
@@ -110,6 +147,14 @@ export function MeetingDetail({
     }
   }, [meeting.id, meeting.audioUrl]);
 
+  // 페이지 로드 시 마지막 선택 언어로 자동 번역
+  useEffect(() => {
+    if (contentLang !== sourceLang && meeting.content) {
+      console.log(`[MeetingDetail] Auto-loading saved language: ${contentLang}`);
+      handleTranslate(meeting.content, contentLang, 'content');
+    }
+  }, []); // 빈 배열로 마운트 시에만 실행
+
   // Scroll to section function
   const scrollToSection = (ref: React.RefObject<HTMLDivElement | null>) => {
     if (ref.current) {
@@ -130,20 +175,84 @@ export function MeetingDetail({
     }
   };
 
-  const handleToggleActionItem = (actionItemId: string) => {
-    const updatedActionItems = meeting.actionItems.map(item =>
-      item.id === actionItemId ? { ...item, completed: !item.completed } : item
-    );
+  const handleToggleActionItem = async (actionItemId: string) => {
+    const item = meeting.actionItems.find(item => item.id === actionItemId);
+    if (!item) return;
 
-    onUpdateMeeting({ ...meeting, actionItems: updatedActionItems });
+    const newCompleted = !item.completed;
+    
+    // 로컬 상태 즉시 업데이트 (UI 반응성)
+    const updatedActionItems = meeting.actionItems.map(item =>
+      item.id === actionItemId ? { ...item, completed: newCompleted } : item
+    );
+    const updatedMeeting = { ...meeting, actionItems: updatedActionItems };
+    
+    // 로컬 meeting state 업데이트
+    setMeeting(updatedMeeting);
+    console.log('[MeetingDetail] Local meeting state updated (toggle)');
+    
+    // 부모에게 전파
+    onUpdateMeeting(updatedMeeting);
+
+    // 백엔드 동기화
+    try {
+      const token = localStorage.getItem('access_token');
+      if (!token) return;
+
+      const newStatus = newCompleted ? 'DONE' : 'TODO';
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/reports/${meeting.id}/action-items/${actionItemId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+    } catch (error) {
+      console.error('Failed to toggle action item:', error);
+    }
   };
 
-  const handleUpdateActionItem = (actionItemId: string, field: keyof ActionItem, value: string) => {
+  const handleUpdateActionItem = async (actionItemId: string, field: keyof ActionItem, value: string) => {
+    // 로컬 상태 즉시 업데이트 (UI 반응성)
     const updatedActionItems = meeting.actionItems.map(item =>
       item.id === actionItemId ? { ...item, [field]: value } : item
     );
+    const updatedMeeting = { ...meeting, actionItems: updatedActionItems };
+    
+    // 로컬 meeting state 업데이트
+    setMeeting(updatedMeeting);
+    console.log('[MeetingDetail] Local meeting state updated (field update)');
+    
+    // 부모에게 전파
+    onUpdateMeeting(updatedMeeting);
 
-    onUpdateMeeting({ ...meeting, actionItems: updatedActionItems });
+    // 백엔드 동기화
+    try {
+      const token = localStorage.getItem('access_token');
+      if (!token) return;
+
+      const updates: any = {};
+      
+      if (field === 'assignee') {
+        updates.assignee_name = value;
+      } else if (field === 'dueDate') {
+        updates.due_dt = value;
+      } else if (field === 'text') {
+        updates.title = value;
+      }
+
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/reports/${meeting.id}/action-items/${actionItemId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      });
+    } catch (error) {
+      console.error('Failed to update action item:', error);
+    }
   };
 
   const calculateProgress = () => {
@@ -190,21 +299,68 @@ export function MeetingDetail({
   };
 
   const handleTranslate = async (text: string, targetLang: string, type: 'summary' | 'content') => {
+    // 캐시 확인
+    const cacheKey = targetLang;
+    const cachedTranslation = type === 'summary' 
+      ? translationCache.summary[cacheKey] 
+      : translationCache.content[cacheKey];
+    
+    if (cachedTranslation) {
+      console.log(`[MeetingDetail] Using cached translation: ${targetLang}`);
+      if (type === 'summary') {
+        setTranslatedSummary(cachedTranslation);
+      } else {
+        setTranslatedContent(cachedTranslation);
+      }
+      return;
+    }
+    
     setIsTranslating(true);
     
-    // Mock translation - 실제로는 번역 API를 호출해야 합니다
-    // 예: Google Translate API, DeepL API 등
     try {
-      // Placeholder: 실제 번역 API 호출이 필요합니다
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // 백엔드 번역 API 호출
+      const contentType = type === 'summary' ? 'summary' : 'transcript';
+      const sourceLangFull = langMap[sourceLang]?.fullName || 'Korean';
+      const targetLangFull = langMap[targetLang]?.fullName || 'English';
       
-      if (type === 'summary') {
-        setTranslatedSummary(`[${targetLang.toUpperCase()}로 번역됨]\n${text}`);
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/reports/${meeting.id}/translate?content_type=${contentType}&source_lang=${sourceLangFull}&target_lang=${targetLangFull}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          },
+        }
+      );
+      
+      if (response.ok) {
+        const result = await response.json();
+        
+        // 캐시에 저장
+        setTranslationCache(prev => ({
+          ...prev,
+          [type]: {
+            ...prev[type],
+            [cacheKey]: result.translated_text
+          }
+        }));
+        
+        if (type === 'summary') {
+          setTranslatedSummary(result.translated_text);
+        } else {
+          setTranslatedContent(result.translated_text);
+        }
+        
+        console.log(`[MeetingDetail] Translation completed: ${sourceLangFull} → ${targetLangFull} (cached)`);
       } else {
-        setTranslatedContent(`[${targetLang.toUpperCase()}로 번역됨]\n${text}`);
+        const error = await response.json().catch(() => ({ detail: 'Translation failed' }));
+        console.error('[MeetingDetail] Translation error:', error);
+        alert(`번역 실패: ${error.detail || '알 수 없는 오류'}`);
       }
     } catch (error) {
-      console.error('Translation error:', error);
+      console.error('[MeetingDetail] Translation error:', error);
+      alert('번역 중 오류가 발생했습니다.');
     } finally {
       setIsTranslating(false);
     }
@@ -290,6 +446,25 @@ export function MeetingDetail({
               <Download className="w-4 h-4" />
               Word
             </Button>
+            {activeTab !== 'analysis' && activeTab !== 'basic' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const { exportMeetingToNotion } = await import('@/features/meetings/integrations');
+                    await exportMeetingToNotion(meeting);
+                  } catch (e) {
+                    console.error(e);
+                    alert('Notion 연동 중 오류가 발생했습니다.');
+                  }
+                }}
+                className="gap-2"
+              >
+                <ExternalLink className="w-4 h-4" />
+                Notion으로 전송
+              </Button>
+            )}
             <Button variant="destructive" size="sm" onClick={handleDelete} className="gap-2">
               <Trash2 className="w-4 h-4" />
               삭제
@@ -304,14 +479,18 @@ export function MeetingDetail({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleExportPDF}>
-                <Download className="w-4 h-4 mr-2" />
-                PDF로 내보내기
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleExportWord}>
-                <FileDown className="w-4 h-4 mr-2" />
-                Word로 내보내기
-              </DropdownMenuItem>
+              {activeTab !== 'analysis' && (
+                <>
+                  <DropdownMenuItem onClick={handleExportPDF}>
+                    <Download className="w-4 h-4 mr-2" />
+                    PDF로 내보내기
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportWord}>
+                    <FileDown className="w-4 h-4 mr-2" />
+                    Word로 내보내기
+                  </DropdownMenuItem>
+                </>
+              )}
               <DropdownMenuItem onClick={handleDelete} className="text-red-600">
                 <Trash2 className="w-4 h-4 mr-2" />
                 회의록 삭제
@@ -544,8 +723,13 @@ export function MeetingDetail({
                                   담당자
                                 </label>
                                 <Input
-                                  value={item.assignee}
-                                  onChange={(e) => handleUpdateActionItem(item.id, 'assignee', e.target.value)}
+                                  key={`assignee-${item.id}`}
+                                  defaultValue={item.assignee}
+                                  onBlur={(e) => {
+                                    if (e.target.value !== item.assignee) {
+                                      handleUpdateActionItem(item.id, 'assignee', e.target.value);
+                                    }
+                                  }}
                                   placeholder="담당자 이름"
                                   className="h-8 md:h-9 text-sm"
                                 />
@@ -557,7 +741,8 @@ export function MeetingDetail({
                                 </label>
                                 <Input
                                   type="date"
-                                  value={item.dueDate}
+                                  key={`duedate-${item.id}`}
+                                  defaultValue={item.dueDate}
                                   onChange={(e) => handleUpdateActionItem(item.id, 'dueDate', e.target.value)}
                                   className="h-8 md:h-9 text-sm"
                                 />
@@ -648,11 +833,21 @@ export function MeetingDetail({
                       회의 원문
                     </CardTitle>
                     <div className="flex items-center gap-2">
+                      {/* 원문 언어 (Static) */}
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md text-sm font-medium border border-gray-200">
+                        <Mic className="w-3.5 h-3.5" />
+                        <span>{langMap[sourceLang]?.name}</span>
+                      </div>
+                      
+                      {/* 번역 언어 선택 (Clickable Toggle) */}
                       <Select
                         value={contentLang}
                         onValueChange={(lang) => {
                           setContentLang(lang);
-                          if (lang !== 'ko') {
+                          // localStorage에 선택 언어 저장
+                          localStorage.setItem(`meeting-${meeting.id}-content-lang`, lang);
+                          
+                          if (lang !== sourceLang) {
                             handleTranslate(meeting.content, lang, 'content');
                           } else {
                             setTranslatedContent('');
@@ -664,12 +859,18 @@ export function MeetingDetail({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="ko">한국어</SelectItem>
+                          <SelectItem value="ko">
+                            <span className="font-medium">원문 보기</span>
+                          </SelectItem>
                           <SelectItem value="en">English</SelectItem>
                           <SelectItem value="ja">日本語</SelectItem>
                           <SelectItem value="zh">中文</SelectItem>
+                          <SelectItem value="es">Español</SelectItem>
+                          <SelectItem value="fr">Français</SelectItem>
+                          <SelectItem value="de">Deutsch</SelectItem>
                         </SelectContent>
                       </Select>
+                      
                       <CollapsibleTrigger asChild>
                         <Button variant="ghost" size="sm">
                           {contentOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -680,12 +881,25 @@ export function MeetingDetail({
                 </CardHeader>
                 <CollapsibleContent>
                   <CardContent>
-                    {isTranslating && contentLang !== 'ko' ? (
-                      <div className="text-center py-4 text-gray-500">번역 중...</div>
+                    {isTranslating && contentLang !== sourceLang ? (
+                      <div className="text-center py-8 text-gray-500">
+                        <div className="inline-flex items-center gap-2">
+                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                          <span>{langMap[sourceLang]?.name} → {langMap[contentLang]?.name} 번역 중...</span>
+                        </div>
+                      </div>
                     ) : (
                       <div className="bg-gray-50 rounded-lg p-4 max-h-[500px] overflow-y-auto">
+                        {contentLang !== sourceLang && (
+                          <div className="mb-3 pb-2 border-b border-gray-300 text-xs text-gray-500">
+                            <span className="inline-flex items-center gap-1">
+                              <Languages className="w-3 h-3" />
+                              번역됨: {langMap[sourceLang]?.name} → {langMap[contentLang]?.name}
+                            </span>
+                          </div>
+                        )}
                         <p className="whitespace-pre-wrap text-gray-700">
-                          {contentLang === 'ko' ? meeting.content : translatedContent || meeting.content}
+                          {contentLang === sourceLang ? meeting.content : translatedContent || meeting.content}
                         </p>
                       </div>
                     )}
@@ -738,7 +952,15 @@ export function MeetingDetail({
                           {...(audioSrc && { src: audioSrc })}
                           controls
                           className="w-full"
-                          onError={(e) => console.error('[MeetingDetail] Audio load error:', e)}
+                          onError={(e) => {
+                            const target = e.target as HTMLAudioElement;
+                            console.error('[MeetingDetail] Audio load error:', {
+                              src: target.src,
+                              error: target.error,
+                              networkState: target.networkState,
+                              readyState: target.readyState
+                            });
+                          }}
                         />
                       </div>
                       <p className="text-xs text-gray-500">
@@ -760,7 +982,16 @@ export function MeetingDetail({
         </TabsContent>
 
         <TabsContent value="analysis" className="mt-6">
-          <MeetingAnalysis meeting={meeting} onUpdateMeeting={onUpdateMeeting} />
+          <MeetingAnalysis 
+            meeting={meeting} 
+            onUpdateMeeting={(updatedMeeting) => {
+              // 로컬 상태 즉시 업데이트
+              setMeeting(updatedMeeting);
+              console.log('[MeetingDetail] Local meeting state updated');
+              // 부모에게 전파
+              onUpdateMeeting(updatedMeeting);
+            }} 
+          />
         </TabsContent>
       </Tabs>
       

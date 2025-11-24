@@ -68,6 +68,24 @@ class UserSetting(Base):
     )
 
 
+# 2-1. 사용자 통합 설정 (Jira, Notion 등 외부 플랫폼 연동 정보)
+class UserIntegrationSetting(Base):
+    __tablename__ = "USER_INTEGRATION_SETTING"
+
+    INTEGRATION_ID = Column(TEXT, primary_key=True, default=p_ulid)
+    USER_ID = Column(TEXT, ForeignKey('RN_USER.USER_ID'), nullable=False)
+    PLATFORM = Column(TEXT, nullable=False)  # 'jira', 'notion', 'google_calendar' 등
+    CONFIG = Column(JSONB, nullable=False)  # 암호화된 설정 정보 (base_url, email, api_token 등)
+    IS_ACTIVE = Column(TEXT, nullable=False, default='Y')
+    CREATED_DT = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    UPDATED_DT = Column(TIMESTAMP(timezone=True), nullable=True, onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint(IS_ACTIVE.in_(['Y', 'N']), name='ck_integration_is_active'),
+        CheckConstraint(PLATFORM.in_(['jira', 'notion', 'google_calendar']), name='ck_integration_platform'),
+    )
+
+
 # 3. 회의 # 관계 : 회의를 중심으로 모든 분석/로그가 매달림
 # 모든 자식 관계에 cascade="all, delete-orphan'이 달려있어, 회의 삭제 -> 연결된 요약/할 일/로그/분석/임베딩 다같이 삭제되는 구조
 class Meeting(Base):
@@ -83,6 +101,8 @@ class Meeting(Base):
     LOCATION = Column(TEXT, nullable=True)
     # 회의 전사 내용 전체
     CONTENT = Column(TEXT, nullable=True)
+    # 번역된 전사 내용
+    TRANSLATED_CONTENT = Column(TEXT, nullable=True)
     # AI 요약 결과
     AI_SUMMARY = Column(TEXT, nullable=True)
     # 참석자 정보 (JSON 배열)
@@ -93,6 +113,8 @@ class Meeting(Base):
     NEXT_STEPS = Column(JSONB, nullable=True)
     # 오디오 URL
     AUDIO_URL = Column(TEXT, nullable=True)
+    # Jira 프로젝트 키 (회의별 마지막 선택 프로젝트 기억용)
+    JIRA_PROJECT_KEY = Column(TEXT, nullable=True)
 
     # 관계
     creator = relationship(
@@ -171,6 +193,8 @@ class Summary(Base):
     MEETING_ID = Column(TEXT, ForeignKey("MEETING.MEETING_ID"), nullable=False)
     FORMAT = Column(TEXT, nullable=False)
     CONTENT = Column(TEXT, nullable=False)
+    # 번역된 요약 내용
+    TRANSLATED_CONTENT = Column(TEXT, nullable=True)
     PROMPT_ID = Column(TEXT, nullable=True)
     CREATED_DT = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
@@ -199,7 +223,9 @@ class ActionItem(Base):
     STATUS = Column(TEXT, nullable=False)
     CREATED_DT = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     UPDATED_DT = Column(TIMESTAMP(timezone=True), nullable=True, onupdate=func.now())
-    ASSIGNEE_ID = Column(TEXT, ForeignKey('RN_USER.USER_ID'), nullable=True)
+    ASSIGNEE_ID = Column(TEXT, ForeignKey('RN_USER.USER_ID'), nullable=True)  # 내부 관리용 (현재 사용자)
+    ASSIGNEE_NAME = Column(TEXT, nullable=True)  # 표시용 담당자 이름 (자유 텍스트)
+    JIRA_ASSIGNEE_ID = Column(TEXT, nullable=True)  # Jira account_id (동기화 시 사용)
 
     __table_args__ = (
         CheckConstraint(

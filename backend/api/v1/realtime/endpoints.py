@@ -5,6 +5,7 @@ import json
 import logging
 import wave
 import os
+import time
 
 from backend.dependencies import get_storage_service, get_llm_service, get_stt_service
 from backend.core.stt.service import STTService
@@ -40,6 +41,17 @@ async def websocket_endpoint(
     
     settings = TranscribeSettings(translate=translate, summary=summary)
     
+    # 요약 관련 공유 상태
+    summary_state = {
+        "transcript_buffer": [],  # {"text": str, "timestamp": float}
+        "previous_summary": "",
+        "first_transcript_time": None,
+        "last_summary_time": None,
+        "sequence": 0,
+        "summary_interval": 60.0,  # 60초마다 요약
+        "min_text_length": 100  # 최소 텍스트 길이
+    }
+    
     try:
         dg_url, dg_headers = stt_service.get_realtime_stt_url()
         wave_file, file_path = storage_service.create_local_wave_file()
@@ -54,13 +66,24 @@ async def websocket_endpoint(
                 handle_client_uplink(websocket, dg_websocket, settings, wave_file, storage_service)
             )
             receive_task = asyncio.create_task(
-                forward_to_client(websocket, dg_websocket, settings, llm_service)
+                forward_to_client(websocket, dg_websocket, settings, llm_service, summary_state)
             )
             
-            # 4. 두 태스크 중 하나가 끝날 때까지 대기
-            #    (보통 클라이언트 연결이 끊길 때까지 계속 실행됩니다.)
+            # 요약 태스크 (summary 플래그가 True일 때만 시작)
+            summary_task = None
+            if settings.summary:
+                summary_task = asyncio.create_task(
+                    periodic_summary_task(websocket, settings, llm_service, summary_state)
+                )
+                logging.info("타임라인 요약 태스크 시작됨")
+            
+            # 4. 모든 태스크 중 하나가 끝날 때까지 대기
+            tasks = [forward_task, receive_task]
+            if summary_task:
+                tasks.append(summary_task)
+            
             done, pending = await asyncio.wait(
-                [forward_task, receive_task],
+                tasks,
                 return_when=asyncio.FIRST_COMPLETED
             )
             
@@ -176,10 +199,17 @@ async def handle_client_uplink(
 
 
 
-async def forward_to_client(client_ws: WebSocket, dg_ws: websockets.WebSocketClientProtocol, settings: TranscribeSettings, llm_service: LLMService):
+async def forward_to_client(
+    client_ws: WebSocket, 
+    dg_ws: websockets.WebSocketClientProtocol, 
+    settings: TranscribeSettings, 
+    llm_service: LLMService,
+    summary_state: dict
+):
     """
     Deepgram(dg_ws)으로부터 전사 결과를 받아 React(client_ws)로 전달하고,
     공유 상태(settings)에 따라 번역 태스크를 생성합니다.
+    요약이 활성화된 경우 전사 텍스트를 버퍼에 저장합니다.
     """
     logging.info("DG Receiver: 텍스트 수신 및 중계 시작.")
     try:
@@ -207,6 +237,23 @@ async def forward_to_client(client_ws: WebSocket, dg_ws: websockets.WebSocketCli
                 # 3. (React 전송) 최종 전사 텍스트를 React로 전송
                 await client_ws.send_json({"type": "final_transcript", "text": final_text})
                 
+                # 4. 요약 활성화 시 버퍼에 저장
+                if settings.summary and not settings.is_paused:
+                    current_time = time.time()
+                    summary_state["transcript_buffer"].append({
+                        "text": final_text,
+                        "timestamp": current_time
+                    })
+                    
+                    # 첫 전사 시간 기록
+                    if summary_state["first_transcript_time"] is None:
+                        summary_state["first_transcript_time"] = current_time
+                        logging.info(f"✅ 첫 전사 시간 기록: {current_time}")
+                    
+                    buffer_count = len(summary_state["transcript_buffer"])
+                    logging.info(f"📝 전사 버퍼 추가: 총 {buffer_count}개 항목")
+                
+                # 5. 번역 태스크 생성
                 if settings.translate:
                     asyncio.create_task(
                         get_translation_and_send(client_ws, final_text, llm_service)
@@ -222,6 +269,133 @@ async def forward_to_client(client_ws: WebSocket, dg_ws: websockets.WebSocketCli
     except Exception as e:
         logging.error(f"DG Receiver 오류: {e}")
 
+
+
+async def periodic_summary_task(
+    client_ws: WebSocket,
+    settings: TranscribeSettings,
+    llm_service: LLMService,
+    summary_state: dict
+):
+    """
+    주기적으로 전사 버퍼를 체크하여 타임라인 요약을 생성합니다.
+    10초마다 체크하며, 조건 만족 시 요약을 생성합니다.
+    """
+    logging.info("🔄 Periodic Summary Task 시작")
+    try:
+        while True:
+            await asyncio.sleep(10)  # 10초마다 체크
+            
+            # 일시정지 상태면 스킵
+            if settings.is_paused:
+                logging.debug("⏸️ 일시정지 중 - 요약 스킵")
+                continue
+            
+            # 첫 전사가 없으면 스킵
+            if summary_state["first_transcript_time"] is None:
+                logging.debug("⏳ 첫 전사 대기 중")
+                continue
+            
+            # 버퍼가 비어있으면 스킵
+            if not summary_state["transcript_buffer"]:
+                logging.debug("📭 버퍼 비어있음 - 요약 스킵")
+                continue
+            
+            current_time = time.time()
+            
+            # 마지막 요약 시간 계산
+            reference_time = summary_state["last_summary_time"] or summary_state["first_transcript_time"]
+            elapsed = current_time - reference_time
+            
+            logging.info(f"⏱️ 경과시간 체크: {elapsed:.1f}초 / {summary_state['summary_interval']}초")
+            
+            # 시간 조건과 최소 텍스트 길이 체크
+            if elapsed >= summary_state["summary_interval"]:
+                buffer_texts = [item["text"] for item in summary_state["transcript_buffer"]]
+                total_text = " ".join(buffer_texts)
+                
+                if len(total_text) >= summary_state["min_text_length"]:
+                    logging.info(f"요약 생성 조건 만족: 경과시간={elapsed:.1f}초, 텍스트길이={len(total_text)}자")
+                    asyncio.create_task(
+                        get_summary_and_send(client_ws, llm_service, summary_state)
+                    )
+                else:
+                    logging.debug(f"텍스트 길이 부족: {len(total_text)}자 < {summary_state['min_text_length']}자")
+                    
+    except asyncio.CancelledError:
+        logging.info("Periodic Summary Task 취소됨")
+    except Exception as e:
+        logging.error(f"Periodic Summary Task 오류: {e}")
+
+
+async def get_summary_and_send(
+    client_ws: WebSocket,
+    llm_service: LLMService,
+    summary_state: dict
+):
+    """
+    버퍼의 전사 텍스트를 요약하고 클라이언트에 전송합니다.
+    get_translation_and_send()와 동일한 패턴으로 구현되었습니다.
+    """
+    try:
+        # 버퍼에서 텍스트 추출
+        buffer_texts = [item["text"] for item in summary_state["transcript_buffer"]]
+        
+        if not buffer_texts:
+            return
+        
+        # 시퀀스 증가
+        summary_state["sequence"] += 1
+        sequence = summary_state["sequence"]
+        
+        # 시간 윈도우 계산
+        first_time = summary_state["first_transcript_time"]
+        current_time = time.time()
+        elapsed_total = current_time - first_time
+        
+        start_minutes = int((elapsed_total - summary_state["summary_interval"]) // 60) if sequence > 1 else 0
+        end_minutes = int(elapsed_total // 60)
+        time_window = f"{start_minutes:02d}:{int((elapsed_total - summary_state['summary_interval']) % 60):02d} - {end_minutes:02d}:{int(elapsed_total % 60):02d}"
+        
+        logging.info(f"요약 생성 시작: 시퀀스={sequence}, 구간={time_window}, 텍스트수={len(buffer_texts)}")
+        
+        # 요약 생성 시작 알림
+        await client_ws.send_json({
+            "type": "summary_generating",
+            "sequence": sequence,
+            "time_window": time_window
+        })
+        
+        # LLM 서비스로 요약 생성
+        result = await llm_service.generate_timeline_summary(
+            texts=buffer_texts,
+            previous_summary=summary_state["previous_summary"],
+            time_window=time_window
+        )
+        
+        # 요약 결과 전송
+        await client_ws.send_json({
+            "type": "timeline_summary",
+            "sequence": sequence,
+            "time_window": time_window,
+            "content": result["incremental_summary"],
+            "rolling_summary": result["rolling_summary"],
+            "timestamp": current_time
+        })
+        
+        # 상태 업데이트
+        summary_state["previous_summary"] = result["rolling_summary"]
+        summary_state["last_summary_time"] = current_time
+        summary_state["transcript_buffer"].clear()
+        
+        logging.info(f"요약 생성 완료: 시퀀스={sequence}")
+        
+    except Exception as e:
+        logging.error(f"요약 생성 오류: {e}")
+        await client_ws.send_json({
+            "type": "summary_error",
+            "message": f"요약 생성 실패: {str(e)}"
+        })
 
 
 async def get_translation_and_send(client_ws: WebSocket, text: str, llm_service: LLMService):

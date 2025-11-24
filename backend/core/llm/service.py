@@ -80,25 +80,35 @@ Use Korean for the summary."""
             print(f"LLM Summary Error: {e}")
             return f"[요약 생성 오류: {e}]"
 
-    async def get_translation(self, text: str) -> str:
+    async def get_translation(self, text: str, source_lang: str = "Korean", target_lang: str = "English") -> str:
         """
         실시간으로 텍스트를 번역하는 코어 함수.
-        (streaming_way_DG.py의 translation_thread 로직 재활용)
+        
+        Args:
+            text: 번역할 텍스트
+            source_lang: 원문 언어 (기본값: Korean)
+            target_lang: 대상 언어 (기본값: English)
+        
+        Returns:
+            str: 번역된 텍스트
         """
         if not text.strip():
             return ""
             
         try:
-            # streaming_way_DG.py에서 사용한 모델과 프롬프트 재현
+            # 동적 프롬프트 생성
+            system_prompt = f"You are a highly skilled real-time translator. Translate the following {source_lang} text to {target_lang}. Respond with only the translated text, maintaining the original tone and meaning."
+            
             chat_completion = await self.client.chat.completions.create(
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a highly skilled real-time translator. Translate the following Korean text to English. Respond with only the translated text.",
+                        "content": system_prompt,
                     },
                     {"role": "user", "content": text},
                 ],
                 model="gpt-4o-mini", 
+                temperature=0.3,  # 일관성 있는 번역을 위해 낮은 temperature
             )
             return chat_completion.choices[0].message.content.strip()
         
@@ -196,6 +206,96 @@ Important:
         except Exception as e:
             print(f"LLM Action Items Error: {e}")
             return []
+
+    async def generate_timeline_summary(
+        self, 
+        texts: List[str], 
+        previous_summary: str = "", 
+        time_window: str = ""
+    ) -> dict:
+        """
+        타임라인 기반 증분 요약 생성 (실시간 WebSocket용)
+        
+        Args:
+            texts: 새로운 회의 내용 텍스트 리스트
+            previous_summary: 이전까지의 누적 요약
+            time_window: 시간 윈도우 (예: "00:00-01:00")
+            
+        Returns:
+            dict: {
+                "incremental_summary": "이번 구간의 요약",
+                "rolling_summary": "전체 누적 요약"
+            }
+        """
+        if not texts:
+            return {
+                "incremental_summary": "",
+                "rolling_summary": previous_summary
+            }
+        
+        full_transcript = "\n".join(texts)
+        
+        try:
+            # 시스템 프롬프트 구성
+            system_content = """You are a professional meeting summarizer for real-time transcription.
+Create a concise summary of the new meeting content while maintaining context from the previous summary.
+
+Format your summary in Korean as:
+## 주요 내용
+- 핵심 논의사항들
+
+## 중요 결정사항
+- 결정된 내용들
+
+Keep it concise (3-5 bullet points) focusing on actionable information."""
+
+            # 사용자 프롬프트 구성
+            if previous_summary:
+                user_content = f"""이전 요약:
+{previous_summary}
+
+---
+
+{time_window} 구간의 새로운 회의 내용:
+{full_transcript}
+
+위 내용을 바탕으로 이번 구간의 핵심만 간결하게 요약해주세요."""
+            else:
+                user_content = f"""{time_window} 구간의 회의 내용:
+{full_transcript}
+
+위 내용을 바탕으로 핵심만 간결하게 요약해주세요."""
+
+            # OpenAI API 호출
+            chat_completion = await self.client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": system_content},
+                    {"role": "user", "content": user_content}
+                ],
+                model="gpt-4o-mini",
+                temperature=0.3,
+                max_tokens=800
+            )
+            
+            incremental_summary = chat_completion.choices[0].message.content.strip()
+            
+            # 누적 요약 생성
+            if previous_summary:
+                rolling_summary = f"{previous_summary}\n\n### {time_window}\n{incremental_summary}"
+            else:
+                rolling_summary = f"### {time_window}\n{incremental_summary}"
+            
+            return {
+                "incremental_summary": incremental_summary,
+                "rolling_summary": rolling_summary
+            }
+            
+        except Exception as e:
+            print(f"LLM generate_timeline_summary Error: {e}")
+            return {
+                "incremental_summary": f"[요약 생성 오류: {e}]",
+                "rolling_summary": previous_summary or ""
+            }
 
     async def get_summary_and_actions(self, texts: list[str], previous_summary: str = "") -> dict:
         """

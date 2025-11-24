@@ -11,6 +11,14 @@ const getAuthToken = (): string | null => {
   return localStorage.getItem('access_token');
 };
 
+const clearAuth = () => {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('access_token');
+    // keep refresh_token handling for future implementation
+    // localStorage.removeItem('refresh_token');
+  }
+};
+
 // 공통 헤더 생성
 const getHeaders = (): HeadersInit => {
   const token = getAuthToken();
@@ -18,6 +26,30 @@ const getHeaders = (): HeadersInit => {
     'Content-Type': 'application/json',
     ...(token && { 'Authorization': `Bearer ${token}` })
   };
+};
+
+// Small helper error class so callers can detect auth errors reliably
+export class AuthError extends Error {
+  constructor(message?: string) {
+    super(message || 'Unauthorized');
+    this.name = 'AuthError';
+  }
+}
+
+// Centralized response handling: handles 401 uniformly
+const handleResponse = async (response: Response) => {
+  if (response.ok) return response;
+
+  // Try to parse JSON body safely
+  const body = await response.json().catch(() => ({ detail: response.statusText || 'Request failed' }));
+
+  if (response.status === 401) {
+    // clear local tokens and throw marker AuthError
+    clearAuth();
+    throw new AuthError(body.detail || '유효하지 않은 인증 토큰입니다.');
+  }
+
+  throw new Error(body.detail || `Request failed with status ${response.status}`);
 };
 
 // API 응답 타입 정의
@@ -61,11 +93,7 @@ export const createMeeting = async (data: CreateMeetingRequest): Promise<Meeting
     body: JSON.stringify(data),
   });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Failed to create meeting' }));
-    throw new Error(error.detail || 'Failed to create meeting');
-  }
-
+  await handleResponse(response);
   return response.json();
 };
 
@@ -78,11 +106,7 @@ export const listMeetings = async (skip: number = 0, limit: number = 100): Promi
     headers: getHeaders(),
   });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Failed to fetch meetings' }));
-    throw new Error(error.detail || 'Failed to fetch meetings');
-  }
-
+  await handleResponse(response);
   return response.json();
 };
 
@@ -95,11 +119,7 @@ export const getMeeting = async (meetingId: string): Promise<MeetingResponse> =>
     headers: getHeaders(),
   });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Failed to fetch meeting' }));
-    throw new Error(error.detail || 'Failed to fetch meeting');
-  }
-
+  await handleResponse(response);
   return response.json();
 };
 
@@ -113,11 +133,7 @@ export const updateMeeting = async (meetingId: string, data: UpdateMeetingReques
     body: JSON.stringify(data),
   });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Failed to update meeting' }));
-    throw new Error(error.detail || 'Failed to update meeting');
-  }
-
+  await handleResponse(response);
   return response.json();
 };
 
@@ -130,25 +146,110 @@ export const deleteMeeting = async (meetingId: string): Promise<void> => {
     headers: getHeaders(),
   });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Failed to delete meeting' }));
-    throw new Error(error.detail || 'Failed to delete meeting');
-  }
+  await handleResponse(response);
+  return;
 };
 
 /**
- * 회의 종료
+ * 회의 종료 (요약 및 액션 아이템 자동 생성)
  */
-export const endMeeting = async (meetingId: string, data?: EndMeetingRequest): Promise<{ message: string; meeting_id: string; status: string; end_dt?: string }> => {
+export const endMeeting = async (meetingId: string, data?: EndMeetingRequest): Promise<{ 
+  message: string; 
+  meeting_id: string; 
+  status: string; 
+  end_dt?: string;
+  content?: string;
+  audio_url?: string;
+  summary?: string;
+  action_items?: Array<{task: string; assignee: string; deadline: string}>;
+}> => {
   const response = await fetch(`${API_URL}/api/v1/meetings/${meetingId}/end`, {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify(data || { status: 'COMPLETED', ended_at: new Date().toISOString() }),
   });
 
+  await handleResponse(response);
+  return response.json();
+};
+
+/**
+ * 회의 요약 조회
+ */
+export const getMeetingSummary = async (meetingId: string): Promise<{
+  summary_id: string;
+  meeting_id: string;
+  format: string;
+  content: string;
+  translated_content?: string;
+  created_dt: string;
+}> => {
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/summary`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Failed to end meeting' }));
-    throw new Error(error.detail || 'Failed to end meeting');
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch summary' }));
+    throw new Error(error.detail || 'Failed to fetch summary');
+  }
+
+  return response.json();
+};
+
+/**
+ * 회의 액션 아이템 조회
+ */
+export const getMeetingActionItems = async (meetingId: string): Promise<Array<{
+  item_id: string;
+  meeting_id: string;
+  title: string;
+  description?: string;
+  due_dt?: string;
+  priority?: string;
+  status: string;
+  assignee_id?: string;
+  external_tool?: string;
+  created_dt: string;
+  updated_dt?: string;
+}>> => {
+  const response = await fetch(`${API_URL}/api/v1/reports/${meetingId}/action-items`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch action items' }));
+    throw new Error(error.detail || 'Failed to fetch action items');
+  }
+
+  return response.json();
+};
+
+/**
+ * 회의 내용 번역 (요약 또는 전사)
+ */
+export const translateMeetingContent = async (
+  meetingId: string, 
+  contentType: 'summary' | 'transcript',
+  targetLang: string = 'en'
+): Promise<{
+  meeting_id: string;
+  content_type: string;
+  translated_text: string;
+  cached: boolean;
+}> => {
+  const response = await fetch(
+    `${API_URL}/api/v1/reports/${meetingId}/translate?content_type=${contentType}&target_lang=${targetLang}`, 
+    {
+      method: 'POST',
+      headers: getHeaders(),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to translate' }));
+    throw new Error(error.detail || 'Failed to translate');
   }
 
   return response.json();

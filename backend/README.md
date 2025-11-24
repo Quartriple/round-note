@@ -662,16 +662,21 @@ logger.error("LLM 요약 오류: %s", str(e))
 
 **Phase 1B - 남은 작업 ⏳**
 
-- [ ] **추가 인증 기능**
+- [x] **추가 인증 기능**
   - [x] GET /auth/me (JWT 토큰 기반 현재 사용자 정보)
   - [x] POST /auth/logout (로그아웃 처리)
   - [ ] 보안 개선 (localStorage → httpOnly Cookie)
 
-- [ ] **회의 저장 통합**
-  - [ ] 회의 종료 시 전사 내용(CONTENT), AI 분석(AI_SUMMARY) DB 저장
-  - [ ] 액션 아이템 자동 추출 및 ACTION_ITEM 테이블 저장
-  - [ ] Summary 테이블 연동 (회의별 요약 저장)
-  - [ ] 프론트엔드 → 백엔드 회의 저장 시 전체 데이터 전달
+- [X] **회의 저장 통합**
+  - [X] 회의 종료 시 전사 내용(CONTENT), AI 분석(AI_SUMMARY) DB 저장
+  - [X] 액션 아이템 자동 추출 및 ACTION_ITEM 테이블 저장
+  - [X] Summary 테이블 연동 (회의별 요약 저장)
+  - [X] 프론트엔드 → 백엔드 회의 저장 시 전체 데이터 전달
+
+
+- [X] **Jira 연동**
+  - [X] `core/integrations/jira_service.py` - 액션 아이템을 Jira 이슈로 생성
+
 
 **Phase 1C - 버그 수정 🐛**
 
@@ -685,16 +690,16 @@ logger.error("LLM 요약 오류: %s", str(e))
 
 **Phase 2A (1-2일) - 즉시 병렬 (김기찬 기다리지 말 것)**
 
-- [ ] **Meeting/Summary/ActionItem CRUD 완성**
-  - [ ] `crud/meeting.py` - create_meeting, get_meeting, list_meetings, update_meeting, delete_meeting
-  - [ ] `crud/summary.py` - create_summary, get_summary_by_meeting, update_summary
-  - [ ] `crud/action_item.py` - create_action_item, get_action_items_by_meeting, update_action_item
+- [x] **Meeting/Summary/ActionItem CRUD 완성**
+  - [x] `crud/meeting.py` - create_meeting, get_meeting, list_meetings, update_meeting, delete_meeting
+  - [x] `crud/summary.py` - create_summary, get_summary_by_meeting, update_summary
+  - [x] `crud/action_item.py` - create_action_item, get_action_items_by_meeting, update_action_item
   - [ ] 더미 데이터로 CRUD 함수 단위 테스트 (tests/test_crud.py)
 
-- [ ] **Pydantic 스키마 확장**
-  - [ ] `schemas/meeting.py` - 완성 (생성/조회/수정 스키마 분리)
-  - [ ] `schemas/report.py` - ActionItemOut, SummaryOut 완성
-  - [ ] 팀원들과 스키마 협의
+- [x] **Pydantic 스키마 확장**
+  - [x] `schemas/meeting.py` - 완성 (생성/조회/수정 스키마 분리)
+  - [x] `schemas/report.py` - ActionItemOut, SummaryOut 완성
+  - [x] 팀원들과 스키마 협의
 
 **Phase 2B (2-3일) - 병렬, 더미 데이터 사용**
 
@@ -706,9 +711,9 @@ logger.error("LLM 요약 오류: %s", str(e))
 
 **Phase 2C (1-2일) - Phase 2A 완료 후**
 
-- [ ] **DB 마이그레이션 & 모델 확정**
-  - [ ] `models.py` - User, Meeting, Summary, ActionItem, Embedding 모델
-  - [ ] `alembic/` - 마이그레이션 생성 및 테스트
+- [x] **DB 마이그레이션 & 모델 확정**
+  - [x] `models.py` - User, Meeting, Summary, ActionItem, Embedding 모델
+  - [x] `alembic/` - 마이그레이션 생성 및 테스트
 
 ---
 
@@ -716,9 +721,9 @@ logger.error("LLM 요약 오류: %s", str(e))
 
 **Phase 3A (1-2일) - 즉시 병렬 (더미 데이터 사용)**
 
-- [ ] **NCP Object Storage 통합**
-  - [ ] `core/storage/service.py` - upload_audio, download_audio (더미 경로 반환)
-  - [ ] NCP SDK 초기화 및 테스트
+- [x] **NCP Object Storage 통합**
+  - [x] `core/storage/service.py` - upload_audio, download_audio (더미 경로 반환)
+  - [x] NCP SDK 초기화 및 테스트
   - [ ] GET /api/v1/health/storage 엔드포인트 추가 (김기찬 또는 정유현)
 
 - [ ] **Pass 2 배치 전사 파이프라인 설계**
@@ -728,24 +733,22 @@ logger.error("LLM 요약 오류: %s", str(e))
 
 **Phase 3B (1-2일) - 병렬, 더미 데이터 사용**
 
-- [ ] **LLM 서비스 완성 (OpenAI API)**
-  - [ ] `core/llm/service.py` - generate_summary, extract_action_items
-  - [ ] 프롬프트 템플릿 작성 및 최적화
-  - [ ] 더미 전사본으로 LLM 테스트 (tests/test_llm.py)
+- [x] **LLM 서비스 완성 (OpenAI API)**
+  - [x] `core/llm/service.py` - generate_summary, extract_action_items
+  - [x] 프롬프트 템플릿 작성 및 최적화
 
 **Phase 3C (1-2일) - 병렬, Reports API 라우팅**
 
-- [ ] **Reports API 라우터 완성** (김기찬이 기본 라우팅 후)
-  - [ ] `api/v1/reports/endpoints.py` - 모든 엔드포인트 구현
-  - [ ] GET /reports/{meeting_id}/summary
-  - [ ] GET /reports/{meeting_id}/action-items
-  - [ ] POST /reports/{meeting_id}/regenerate (RQ 작업 등록)
+- [] **Reports API 라우터 완성** (김기찬이 기본 라우팅 후)
+  - [] `api/v1/reports/endpoints.py` - 모든 엔드포인트 구현
+  - [] GET /reports/{meeting_id}/summary
+  - [] GET /reports/{meeting_id}/action-items
+  - [] POST /reports/{meeting_id}/regenerate (RQ 작업 등록)
 
 **Phase 3D (1-2일) - Phase 3A 완료 후**
 
-- [ ] **Jira/Notion 연동**
-  - [ ] `core/integrations/jira_service.py` - 액션 아이템을 Jira 이슈로 생성
-  - [ ] `core/integrations/notion_service.py` - 보고서를 Notion 페이지로 생성
+- [] **Notion 연동**
+  - [] `core/integrations/notion_service.py` - 보고서를 Notion 페이지로 생성
   - [ ] 통합 테스트
 
 ---

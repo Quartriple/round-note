@@ -55,6 +55,8 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
     transcript,
     partialText,
     translation,
+    timelineSummaries,
+    isGeneratingSummary: isGeneratingSummaryFromHook,
     startRecording,
     stopRecording,
     pauseRecording,
@@ -74,13 +76,10 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
   const [recordingTime, setRecordingTime] = useState(0);
   const [inputLanguage, setInputLanguage] = useState('ko-KR');
   const [outputLanguage, setOutputLanguage] = useState('ko-KR');
-  const [realtimeSummary, setRealtimeSummary] = useState('');
   const [activeTab, setActiveTab] = useState<'transcribe' | 'summary'>('transcribe');
-  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const contentEndRef = useRef<HTMLDivElement>(null);
   const summaryEndRef = useRef<HTMLDivElement>(null);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const summaryIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   // Audio recording states
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
@@ -131,63 +130,6 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
       }
     };
   }, [isRecording]);
-
-  // 실시간 요약 생성 (10초마다)
-  useEffect(() => {
-    if (isRecording && content.trim().length > 50) {
-      summaryIntervalRef.current = setInterval(() => {
-        generateRealtimeSummary();
-      }, 10000); // 10초마다 요약 생성
-    } else {
-      if (summaryIntervalRef.current) {
-        clearInterval(summaryIntervalRef.current);
-      }
-    }
-
-    return () => {
-      if (summaryIntervalRef.current) {
-        clearInterval(summaryIntervalRef.current);
-      }
-    };
-  }, [isRecording, content]);
-
-  const generateRealtimeSummary = async () => {
-    if (!content.trim() || isGeneratingSummary) return;
-
-    setIsGeneratingSummary(true);
-    
-    try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3ecf4837/analyze-meeting`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
-          body: JSON.stringify({
-            content,
-            meetingTitle: editableTitle,
-            summaryOnly: true, // 요약만 요청
-          }),
-        }
-      );
-
-      if (response.ok) {
-        const analysis = await response.json();
-        if (analysis.summary) {
-          setRealtimeSummary(analysis.summary);
-          setTimeout(() => {
-            summaryEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-          }, 100);
-        }
-      }
-    } catch (error) {
-      console.error('Realtime summary error:', error);
-    } finally {
-      setIsGeneratingSummary(false);
-    }
-  };
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -656,46 +598,49 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack }: Meeting
 
               {/* 요약 내용 표시 영역 - 고정 높이 + 스크롤 */}
               <div className="h-[400px] w-[1000px] overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50">
-                {realtimeSummary ? (
+                {timelineSummaries.length > 0 ? (
                   <div className="space-y-3">
-                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200">
-                      <div className="flex items-start gap-2 mb-2">
-                        <Brain className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-                        <div className="flex-1">
-                          <h4 className="font-semibold text-slate-800 mb-2">AI 실시간 요약</h4>
-                          <div className="whitespace-pre-wrap text-slate-700 text-sm leading-relaxed">
-                            {realtimeSummary}
+                    {timelineSummaries.map((summary, index) => (
+                      <div key={index} className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200">
+                        <div className="flex items-start gap-2 mb-2">
+                          <Brain className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <h4 className="font-semibold text-slate-800">
+                                {summary.sequence}차 요약
+                              </h4>
+                              <span className="text-xs text-slate-500 bg-white px-2 py-1 rounded">
+                                📍 {summary.timeWindow}
+                              </span>
+                            </div>
+                            <div className="whitespace-pre-wrap text-slate-700 text-sm leading-relaxed">
+                              {summary.content}
+                            </div>
                           </div>
                         </div>
                       </div>
-                      {isGeneratingSummary && (
-                        <div className="flex items-center gap-2 text-xs text-slate-500 mt-2">
-                          <Sparkles className="w-3 h-3 animate-spin" />
-                          요약 업데이트 중...
-                        </div>
-                      )}
-                    </div>
+                    ))}
+                    {isGeneratingSummaryFromHook && (
+                      <div className="flex items-center gap-2 justify-center p-4 text-slate-500">
+                        <Sparkles className="w-4 h-4 animate-spin" />
+                        <span className="text-sm">다음 구간 요약 생성 중...</span>
+                      </div>
+                    )}
                     <div ref={summaryEndRef} />
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center h-full text-center">
-                    {isRecording && content.trim().length > 50 ? (
+                    {isRecording ? (
                       <div className="space-y-4">
                         <Brain className="w-12 h-12 text-primary mx-auto animate-pulse" />
-                        <p className="text-slate-500">AI가 요약을 생성하고 있습니다...</p>
-                        <p className="text-xs text-slate-400">회의 내용이 쌓이면 자동으로 요약이 표시됩니다</p>
-                      </div>
-                    ) : isRecording ? (
-                      <div className="space-y-4">
-                        <Brain className="w-12 h-12 text-slate-300 mx-auto" />
                         <p className="text-slate-500">회의 내용을 수집 중입니다...</p>
-                        <p className="text-xs text-slate-400">충분한 내용이 쌓이면 AI 요약이 시작됩니다</p>
+                        <p className="text-xs text-slate-400">60초마다 자동으로 타임라인 요약이 생성됩니다</p>
                       </div>
                     ) : (
                       <div className="space-y-3">
                         <Brain className="w-12 h-12 text-slate-300 mx-auto" />
                         <p className="text-slate-500">녹취 시작 버튼을 눌러주세요</p>
-                        <p className="text-xs text-slate-400">AI가 회의 내용을 자동으로 요약합니다</p>
+                        <p className="text-xs text-slate-400">AI가 타임라인 기반으로 회의 내용을 자동 요약합니다</p>
                       </div>
                     )}
                   </div>

@@ -32,11 +32,16 @@ import logoSmall from "../../../public/60426c137b413d34e2b76e4bc10e67509bb612fb.
 export interface ActionItem {
   id: string;
   text: string;
+  description?: string;
   assignee: string;
   dueDate: string;
   completed: boolean;
   priority?: string;
   assigneeAvatar?: string;
+  item_id?: string;
+  title?: string;
+  due_date?: string;
+  jira_assignee_id?: string;
 }
 
 export interface Meeting {
@@ -83,14 +88,28 @@ export default function Dashboard() {
 
         if (response.ok) {
           const data = await response.json();
+          console.log('[Dashboard] Fetched meetings from backend:', data);
+          
           // 백엔드 응답을 프론트엔드 Meeting 타입으로 변환
           const mappedMeetings: Meeting[] = data.map((m: any) => ({
             id: m.meeting_id,
             title: m.title || '제목 없음',
             date: m.start_dt?.split('T')[0] || new Date().toISOString().split('T')[0],
             content: m.content || '',
-            summary: m.ai_summary || m.purpose || '',
-            actionItems: [],
+            summary: m.summary?.content || m.ai_summary || m.purpose || '',
+            actionItems: (m.action_items || []).map((item: any) => ({
+              id: item.item_id,
+              item_id: item.item_id,
+              text: item.title || item.description || '',
+              title: item.title,
+              description: item.description,
+              assignee: item.assignee_name || '미지정',
+              dueDate: item.due_dt ? new Date(item.due_dt).toISOString().split('T')[0] : '',
+              due_date: item.due_dt,
+              completed: item.status === 'DONE',
+              priority: item.priority?.toLowerCase() || 'medium',
+              jira_assignee_id: item.jira_assignee_id
+            })),
             createdAt: m.start_dt || new Date().toISOString(),
             updatedAt: m.end_dt || new Date().toISOString(),
             participants: m.participants || [],
@@ -98,6 +117,8 @@ export default function Dashboard() {
             nextSteps: m.next_steps || [],
             audioUrl: m.audio_url || ''
           }));
+          
+          console.log('[Dashboard] Mapped meetings:', mappedMeetings);
           setMeetings(mappedMeetings);
         }
       } catch (error) {
@@ -124,11 +145,14 @@ export default function Dashboard() {
   };
 
   const handleUpdateMeeting = (updatedMeeting: Meeting) => {
+    console.log('[Dashboard] handleUpdateMeeting called with:', updatedMeeting);
     const updated = {
       ...updatedMeeting,
       updatedAt: new Date().toISOString(),
     };
-    setMeetings(meetings.map((m) => (m.id === updated.id ? updated : m)));
+    const newMeetings = meetings.map((m) => (m.id === updated.id ? updated : m));
+    console.log('[Dashboard] Updated meetings:', newMeetings);
+    setMeetings(newMeetings);
   };
 
   const handleDeleteMeeting = (id: string) => {
