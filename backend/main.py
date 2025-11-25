@@ -14,6 +14,8 @@ from backend.api.v1.auth.endpoints import router as auth_router
 from backend.api.v1.meetings.endpoints import router as meetings_router
 from backend.api.v1.realtime.endpoints import router as realtime_router
 from backend.api.v1.reports.endpoints import router as reports_router
+# [추가]
+from .api.v1.chatbot.endpoints import router as chatbot_router
 
 
 load_dotenv()
@@ -48,7 +50,8 @@ app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(meetings_router, prefix="/api/v1/meetings", tags=["Meetings"])
 app.include_router(realtime_router, prefix="/api/v1/realtime", tags=["Realtime"])
 app.include_router(reports_router, prefix="/api/v1", tags=["Reports"])
-
+# [추가]
+app.include_router(chatbot_router, prefix="/api/v1/chatbot", tags=["Chatbot"])
 
 @app.get("/")
 def read_root():

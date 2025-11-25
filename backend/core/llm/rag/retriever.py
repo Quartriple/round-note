@@ -80,30 +80,34 @@ class RAGRetriever:
             query=query,
             k=k * 3  # 오버샘플링: 충분한 회의 확보
         )
-        
+
         # 2. 청크에서 회의 ID 추출 및 그룹핑
         meeting_scores = {}
-        
-        for chunk_text, similarity in results:
-            # 청크로부터 회의 ID 찾기
-            embedding = (
-                self.db.query(models.Embedding)
-                .filter(models.Embedding.CHUNK_TEXT == chunk_text)
-                .first()
-            )
-            
+
+        for eid, chunk_text, similarity, created_dt in results:
+            # embedding_id가 있으면 바로 Embedding 레코드 조회
+            embedding = None
+            if eid:
+                embedding = (
+                    self.db.query(models.Embedding)
+                    .filter(models.Embedding.EMBEDDING_ID == eid)
+                    .first()
+                )
+            else:
+                embedding = (
+                    self.db.query(models.Embedding)
+                    .filter(models.Embedding.CHUNK_TEXT == chunk_text)
+                    .first()
+                )
+
             if embedding and embedding.MEETING_ID != exclude_meeting_id:
                 meeting_id = embedding.MEETING_ID
-                
+
                 # 같은 회의의 여러 청크가 있으면 최고 점수 사용
-                # 이유: 회의의 관련성 = 가장 관련 높은 부분
                 if meeting_id not in meeting_scores:
                     meeting_scores[meeting_id] = similarity
                 else:
-                    meeting_scores[meeting_id] = max(
-                        meeting_scores[meeting_id],
-                        similarity
-                    )
+                    meeting_scores[meeting_id] = max(meeting_scores[meeting_id], similarity)
         
         # 3. 상위 k개 회의 선택 (유사도 높은 순)
         top_meetings = sorted(
@@ -174,6 +178,7 @@ class RAGRetriever:
         """
         # VectorStore의 meeting_id 필터링 기능 사용
         # 간단한 래퍼 메서드
+        # returns list of tuples (embedding_id, chunk_text, similarity, created_dt)
         return self.vectorstore.similarity_search(
             query=query,
             k=k,
@@ -213,6 +218,15 @@ class RAGRetriever:
             k=k,
             meeting_id=meeting_id
         )
-        
-        # 텍스트만 추출 (LangChain 호환)
-        return [text for text, _ in results]
+
+        # results: list of tuples (embedding_id, chunk_text, similarity, created_dt)
+        # return list of dicts with metadata
+        return [
+            {
+                "embedding_id": r[0],
+                "text": r[1],
+                "similarity": r[2],
+                "created_at": r[3].isoformat() if r[3] is not None else None,
+            }
+            for r in results
+        ]

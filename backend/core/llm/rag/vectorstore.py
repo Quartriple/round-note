@@ -12,6 +12,9 @@ from sqlalchemy import text
 import openai
 import os
 from backend import models
+import logging
+
+logger = logging.getLogger(__name__)
 
 class VectorStore:
     """pgvector 기반 벡터 저장소"""
@@ -64,6 +67,7 @@ class VectorStore:
             생성된 임베딩 ID 리스트
         """
         embedding_ids = []
+        logger.info("VectorStore.add_texts: creating %d embeddings for meeting=%s", len(texts), meeting_id)
         
         for i, text in enumerate(texts):
             # 1. OpenAI 임베딩 생성
@@ -79,8 +83,10 @@ class VectorStore:
             self.db.flush()  # ID 할당을 위해 flush
             
             embedding_ids.append(embedding.EMBEDDING_ID)
+            logger.debug("Created embedding id=%s for chunk idx=%d", embedding.EMBEDDING_ID, i)
         
         self.db.commit()
+        logger.info("VectorStore.add_texts: committed %d embeddings for meeting=%s", len(embedding_ids), meeting_id)
         return embedding_ids
     
     # 유사도 검색 # 벡터의 방향을 비교, 의미적으로 비슷한지 판단
@@ -106,26 +112,42 @@ class VectorStore:
         
         # 2. pgvector 코사인 유사도 검색
         # <=> 연산자: 코사인 거리 (1 - 코사인 유사도)
-        sql_query = text("""
-            SELECT 
-                CHUNK_TEXT,
-                1 - (EMBEDDING <=> :query_embedding) as similarity
-            FROM EMBEDDING
-            WHERE (:meeting_id IS NULL OR MEETING_ID = :meeting_id)
-            ORDER BY EMBEDDING <=> :query_embedding
-            LIMIT :k
-        """)
+        if meeting_id:
+            sql_query = text("""
+                SELECT 
+                    "EMBEDDING_ID",
+                    "CHUNK_TEXT",
+                    1 - ("EMBEDDING" <=> (:query_embedding)::vector) as similarity,
+                    "CREATED_DT"
+                FROM "EMBEDDING"
+                WHERE "MEETING_ID" = :meeting_id
+                ORDER BY "EMBEDDING" <=> (:query_embedding)::vector
+                LIMIT :k
+            """)
+        else:
+            sql_query = text("""
+                SELECT 
+                    "EMBEDDING_ID",
+                    "CHUNK_TEXT",
+                    1 - ("EMBEDDING" <=> (:query_embedding)::vector) as similarity,
+                    "CREATED_DT"
+                FROM "EMBEDDING"
+                ORDER BY "EMBEDDING" <=> (:query_embedding)::vector
+                LIMIT :k
+            """)
+
+        params = {
+            "query_embedding": query_embedding,
+            "k": k
+        }
         
-        results = self.db.execute(
-            sql_query,
-            {
-                "query_embedding": query_embedding,
-                "meeting_id": meeting_id,
-                "k": k
-            }
-        ).fetchall()
-        
-        return [(row[0], row[1]) for row in results]
+        if meeting_id:
+            params["meeting_id"] = meeting_id
+
+        results = self.db.execute(sql_query, params).fetchall()
+
+        # return list of tuples: (embedding_id, chunk_text, similarity, created_dt)
+        return [(row[0], row[1], float(row[2]) if row[2] is not None else None, row[3]) for row in results]
     
     # 임베딩 삭제
     def delete_by_meeting(self, meeting_id: str) -> int:

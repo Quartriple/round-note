@@ -9,7 +9,7 @@ class ChatbotQuestionRequest(BaseModel):
     """
     사용자가 챗봇에게 질의할 때 사용하는 요청 바디
     """
-    meeting_id: str = Field(..., description="대상 회의 ID (MEETING_ID)")
+    meeting_id: Optional[str] = Field(None, description="대상 회의 ID (MEETING_ID). None이면 전체 회의 검색")
     question: str = Field(..., description="사용자 질문")
     use_rag: bool = Field(
         default=True,
@@ -22,7 +22,9 @@ class RetrievedChunk(BaseModel):
     RAG로 검색된 텍스트 청크 정보
     (현재는 텍스트만, 필요하면 score 등 추가 가능)
     """
+    embedding_id: Optional[str] = None
     text: str
+    similarity: Optional[float] = None
 
 
 class ChatbotAnswerResponse(BaseModel):
@@ -73,3 +75,39 @@ class ChatbotHealthCheck(BaseModel):
     rag_enabled: bool
     vectorstore_connected: bool
     llm_available: bool
+
+
+# ==================== 새로운 원문 기반 챗봇 스키마 ====================
+
+class FullTextChatbotRequest(BaseModel):
+    """
+    원문 기반 챗봇 요청 스키마 (N개의 회의 선택 가능)
+    """
+    meeting_ids: List[str] = Field(
+        ...,
+        description="질문 대상 회의 ID 리스트 (1개 이상)",
+        min_length=1
+    )
+    question: str = Field(..., description="사용자 질문", min_length=1)
+
+
+class MeetingContext(BaseModel):
+    """
+    LLM에 전달된 회의 컨텍스트 정보
+    """
+    meeting_id: str
+    title: Optional[str] = None
+    content_length: int = Field(..., description="전사 텍스트 길이")
+
+
+class FullTextChatbotResponse(BaseModel):
+    """
+    원문 기반 챗봇 응답 스키마
+    """
+    question: str = Field(..., description="사용자 질문")
+    answer: str = Field(..., description="챗봇 답변")
+    used_meetings: List[MeetingContext] = Field(
+        ...,
+        description="답변 생성에 사용된 회의 정보 리스트"
+    )
+    created_at: datetime = Field(..., description="응답 생성 시각")
