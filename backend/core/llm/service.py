@@ -68,7 +68,7 @@ Use Korean for the summary."""
                         "content": f"다음 회의록을 요약해주세요:\n\n{full_transcript}"
                     }
                 ],
-                model="gpt-4o-mini",  # 비용 효율적인 모델
+                model="gpt-4.1-nano",  # 비용 효율적인 모델
                 temperature=0.3,  # 일관된 요약을 위해 낮게 설정
                 max_tokens=1000
             )

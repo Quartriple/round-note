@@ -23,10 +23,10 @@ oauth.register(
 )
 
 @router.post("/register")
-def register_user(user: user_schema.UserCreate, db: Session = Depends(get_db)):
-    """새로운 사용자를 등록합니다. 회원가입 후 로그인이 필요합니다."""
+def register_user(user: user_schema.UserCreate, response: Response, db: Session = Depends(get_db)):
+    """새로운 사용자를 등록하고 자동으로 로그인 토큰을 발급합니다."""
     print(f"[DEBUG] 회원가입 시도 - Email: {user.email}, Name: {user.name}, Password length: {len(user.password)}")
-    
+
     # 이메일 중복 체크
     existing_user = user_crud.get_user_by_email(db, user.email)
     if existing_user:
@@ -37,9 +37,26 @@ def register_user(user: user_schema.UserCreate, db: Session = Depends(get_db)):
     print(f"[DEBUG] 사용자 생성 중...")
     db_user = user_crud.create_user(db, user)
     print(f"[DEBUG] 사용자 생성 완료 - USER_ID: {db_user.USER_ID}, Email: {db_user.EMAIL}")
-    
+
+    # 회원가입 성공 후 자동으로 토큰 발급
+    token = security.create_access_token({"sub": db_user.USER_ID, "email": db_user.EMAIL})
+
+    # httpOnly Cookie에 토큰 설정 (브라우저용)
+    is_production = os.getenv("ENVIRONMENT", "development") == "production"
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=is_production,
+        samesite="lax",
+        max_age=1800  # 30분
+    )
+
+    # 응답 body에도 토큰 포함 (API 테스트 및 모바일 앱용)
     return {
-        "message": "회원가입 성공. 로그인해주세요.",
+        "message": "회원가입 성공",
+        "access_token": token,
+        "token_type": "bearer",
         "user": {
             "id": db_user.USER_ID,
             "email": db_user.EMAIL,
@@ -73,8 +90,8 @@ def login_for_access_token(form_data: user_schema.UserLogin, response: Response,
         )
     print(f"[DEBUG] 인증 성공")
     token = security.create_access_token({"sub": user.USER_ID, "email": user.EMAIL})
-    
-    # httpOnly Cookie에 토큰 설정
+
+    # httpOnly Cookie에 토큰 설정 (브라우저용)
     is_production = os.getenv("ENVIRONMENT", "development") == "production"
     response.set_cookie(
         key="access_token",
@@ -84,9 +101,12 @@ def login_for_access_token(form_data: user_schema.UserLogin, response: Response,
         samesite="lax",  # CSRF 방어
         max_age=1800  # 30분 (초 단위)
     )
-    
+
+    # 응답 body에도 토큰 포함 (API 테스트 및 모바일 앱용)
     return {
         "message": "로그인 성공",
+        "access_token": token,
+        "token_type": "bearer",
         "user": {
             "id": user.USER_ID,
             "email": user.EMAIL,

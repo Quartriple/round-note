@@ -8,7 +8,9 @@
       "Bash(./venv/Scripts/pip.exe install:*)",
       "Bash(backend/venv/Scripts/python.exe:*)",
       "Bash(curl:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(find:*)",
+      "Bash(docker-compose restart:*)"
     ],
     "deny": [],
     "ask": []
