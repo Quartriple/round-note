@@ -2,8 +2,8 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useMicVAD, ReactRealTimeVADOptions } from '@ricky0123/vad-react';
 
 // WebSocket 설정 관련 전역 상수
-const WS_URL = process.env.NEXT_PUBLIC_API_URL ? 
-    `ws${process.env.NEXT_PUBLIC_API_URL.substring(4)}/api/v1/realtime/ws` : 
+const WS_URL = process.env.NEXT_PUBLIC_API_URL ?
+    `ws${process.env.NEXT_PUBLIC_API_URL.substring(4)}/api/v1/realtime/ws` :
     'ws://localhost:8000/api/v1/realtime/ws';
 
 // 오디오 설정 (Deepgram 요구사항에 맞춤)
@@ -24,12 +24,29 @@ function float32ToInt16(float32Array: Float32Array): Int16Array {
     return int16Array;
 }
 
+interface TimelineSummary {
+    sequence: number;
+    timeWindow: string;
+    content: string;
+    timestamp: number;
+}
+
+export interface TranscriptSegment {
+    id: string;
+    timestamp: string;
+    speaker: string;
+    text: string;
+    isFinal: boolean;
+}
+
 interface RealtimeStreamControls {
     isRecording: boolean;
     isPaused: boolean;
-    transcript: string;
+    transcript: TranscriptSegment[];
     partialText: string;
     translation: string;
+    timelineSummaries: TimelineSummary[];
+    isGeneratingSummary: boolean;
     startRecording: () => Promise<void>;
     stopRecording: () => void;
     pauseRecording: () => void;
@@ -41,12 +58,14 @@ const useRealtimeStream = (): RealtimeStreamControls => {
     // 1. 상태 정의
     const [isRecording, setIsRecording] = useState<boolean>(false);
     const [isPaused, setIsPaused] = useState<boolean>(false);
-    const [transcript, setTranscript] = useState<string>('');
+    const [transcript, setTranscript] = useState<TranscriptSegment[]>([]);
     const [partialText, setPartialText] = useState<string>('');
     const [translation, setTranslation] = useState<string>('');
+    const [timelineSummaries, setTimelineSummaries] = useState<TimelineSummary[]>([]);
+    const [isGeneratingSummary, setIsGeneratingSummary] = useState<boolean>(false);
 
     // 2. Mutable 객체 참조
-    const wsRef = useRef<WebSocket | null>(null); 
+    const wsRef = useRef<WebSocket | null>(null);
     const isRecordingRef = useRef<boolean>(false); // 최신 isRecording 상태를 추적
     const isPausedRef = useRef<boolean>(false); // 최신 isPaused 상태를 추적
     const silenceIntervalRef = useRef<NodeJS.Timeout | null>(null); // 침묵 오디오 전송 인터벌
@@ -111,12 +130,12 @@ const useRealtimeStream = (): RealtimeStreamControls => {
         onFrameProcessed: (probs: any, frame: Float32Array) => {
             const isSpeech = probs.isSpeech > 0.6;
             const int16Frame = float32ToInt16(frame);
-            
+
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && int16Frame.buffer.byteLength > 0) {
                 // console.log("전송 데이터 타입:", int16Frame.buffer instanceof ArrayBuffer);
                 wsRef.current.send(int16Frame.buffer);
             }
-            
+
         },
         onSpeechStart: () => {
             console.log("VAD: Speech Started");
@@ -183,13 +202,13 @@ const useRealtimeStream = (): RealtimeStreamControls => {
     // 리소스 정리 함수
     const cleanupResources = useCallback(() => {
         console.log("리소스 정리 시작");
-        
+
         // 침묵 오디오 인터벌 정리
         if (silenceIntervalRef.current) {
             clearInterval(silenceIntervalRef.current);
             silenceIntervalRef.current = null;
         }
-        
+
         // VAD 중지 - pause 메서드 사용
         try {
             vadPause();
@@ -197,7 +216,7 @@ const useRealtimeStream = (): RealtimeStreamControls => {
         } catch (e) {
             console.error("VAD 중지 오류:", e);
         }
-        
+
         // 마이크 스트림 ref에 저장된 것이 있다면 중지
         if (mediaStreamRef.current) {
             try {
@@ -210,7 +229,7 @@ const useRealtimeStream = (): RealtimeStreamControls => {
                 console.error("저장된 마이크 스트림 중지 오류:", e);
             }
         }
-        
+
         // WebSocket 연결 닫기
         if (wsRef.current) {
             try {
@@ -220,7 +239,7 @@ const useRealtimeStream = (): RealtimeStreamControls => {
                 ws.onmessage = null;
                 ws.onclose = null;
                 ws.onerror = null;
-                
+
                 if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
                     ws.close();
                 }
@@ -240,10 +259,10 @@ const useRealtimeStream = (): RealtimeStreamControls => {
         }
 
         try {
-            const wsUrl = WS_URL + "?translate=true";
+            const wsUrl = WS_URL + "?translate=true&summary=true";
             console.log("WebSocket 연결 시도:", wsUrl);
             console.log("환경변수 API_URL:", process.env.NEXT_PUBLIC_API_URL);
-            
+
             const ws = new WebSocket(wsUrl);
             wsRef.current = ws;
 
@@ -264,7 +283,7 @@ const useRealtimeStream = (): RealtimeStreamControls => {
                     console.log("WebSocket readyState:", ws.readyState);
                     resolve();
                 };
-                
+
                 ws.onerror = (error: Event) => {
                     clearTimeout(timeout);
                     console.error("❌ WebSocket 연결 오류:", error);
@@ -279,32 +298,61 @@ const useRealtimeStream = (): RealtimeStreamControls => {
                 try {
                     const message = JSON.parse(event.data);
                     console.log("파싱된 메시지:", message);
-                    
+
                     switch (message.type) {
                         case 'partial_transcript':
                             console.log("임시 전사:", message.text);
                             setPartialText(message.text);
                             break;
-                            
+
                         case 'final_transcript':
                             console.log("최종 전사:", message.text);
-                            setTranscript(prev => {
-                                const newText = prev ? prev + '\n' + message.text : message.text;
-                                return newText;
-                            });
+                            const now = new Date();
+                            const timeString = `${now.getHours().toString().padStart(2, '0')}시 ${now.getMinutes().toString().padStart(2, '0')}분`;
+
+                            const newSegment: TranscriptSegment = {
+                                id: Date.now().toString(),
+                                timestamp: timeString,
+                                speaker: "Speaker 1", // TODO: 백엔드에서 화자 정보가 오면 수정
+                                text: message.text,
+                                isFinal: true
+                            };
+
+                            setTranscript(prev => [...prev, newSegment]);
                             setPartialText('');
                             break;
-                            
+
                         case 'translation':
                             console.log("번역 결과:", message.translated_text);
                             setTranslation(message.translated_text);
+                            break;
+                            
+                        case 'summary_generating':
+                            console.log("요약 생성 시작:", message.sequence);
+                            setIsGeneratingSummary(true);
+                            break;
+                            
+                        case 'timeline_summary':
+                            console.log("타임라인 요약 수신:", message.sequence, message.time_window);
+                            setTimelineSummaries(prev => [...prev, {
+                                sequence: message.sequence,
+                                timeWindow: message.time_window,
+                                content: message.content,
+                                timestamp: message.timestamp
+                            }]);
+                            setIsGeneratingSummary(false);
+                            break;
+                            
+                        case 'summary_error':
+                            console.error("요약 생성 오류:", message.message);
+                            setIsGeneratingSummary(false);
                             break;
                             
                         case 'error':
                             console.error("Server Error:", message.message);
                             setPartialText(`[ERROR]: ${message.message}`);
                             break;
-                            
+
                         default:
                             console.warn("Unknown message type:", message.type);
                     }
@@ -321,7 +369,7 @@ const useRealtimeStream = (): RealtimeStreamControls => {
                 console.log("Close reason:", event.reason);
                 console.log("Was clean:", event.wasClean);
                 console.log("현재 녹음 상태:", isRecordingRef.current);
-                
+
                 // Close code 설명
                 const closeCodeMessages = {
                     1000: "정상 종료",
@@ -331,10 +379,12 @@ const useRealtimeStream = (): RealtimeStreamControls => {
                     1012: "서버 재시작",
                 } as const;
                 const closeReason = closeCodeMessages[event.code as keyof typeof closeCodeMessages] || "알 수 없음";
-                
+
                 if (isRecordingRef.current) {
                     setIsRecording(false);
-                    setTranscript(prev => prev + `\n[서버 연결 종료 - Code: ${event.code}, ${closeReason}]`);
+                    // 연결 종료 시 에러 메시지를 세그먼트로 추가할지 여부는 선택사항. 
+                    // 여기서는 로그만 남기고 UI에는 표시하지 않거나, 필요시 시스템 메시지로 추가 가능.
+                    // setTranscript(prev => [...prev, { id: 'sys', timestamp: '', speaker: 'System', text: `[서버 연결 종료 - Code: ${event.code}]`, isFinal: true }]);
                 }
             };
 
@@ -350,13 +400,14 @@ const useRealtimeStream = (): RealtimeStreamControls => {
             }
 
             setIsRecording(true);
-            setTranscript('🎙️ 실시간 전사를 시작합니다.');
+            // 초기화: 이전 대화 내용을 지우지 않고 유지하거나, 필요시 초기화. 
+            // 여기서는 startRecording 시 초기화하지 않고 이어서 보여줌 (사용자 경험상 끊겼다 다시 해도 이어지는게 나을 수 있음)
+            // 만약 매번 새로 시작하려면 setTranscript([]) 호출.
 
         } catch (e: unknown) {
             console.error("녹음 시작 오류:", e);
             cleanupResources();
             setIsRecording(false);
-            setTranscript('❌ 녹음 시작 실패: ' + (e instanceof Error ? e.message : "알 수 없는 오류"));
         }
     }, [vadLoading, vadStart, cleanupResources]);
 
@@ -366,14 +417,15 @@ const useRealtimeStream = (): RealtimeStreamControls => {
             console.log("이미 녹음이 중지됨");
             return;
         }
-        
+
         console.log("녹음 중지 시작");
         cleanupResources();
 
         setIsRecording(false);
         setIsPaused(false); // 일시정지 상태도 리셋
         setPartialText('');
-        setTranscript(prev => prev + '\n[녹음 종료]');
+        // 종료 메시지 추가 (선택사항)
+        // setTranscript(prev => [...prev, { id: 'end', timestamp: '', speaker: 'System', text: '[녹음 종료]', isFinal: true }]);
         console.log("녹음 중지 완료");
 
     }, [isRecording, cleanupResources]);
@@ -384,7 +436,7 @@ const useRealtimeStream = (): RealtimeStreamControls => {
             console.log("녹음 중이 아니거나 이미 일시정지됨");
             return;
         }
-        
+
         console.log("녹음 일시정지");
         try {
             // 백엔드에 일시정지 상태 알림
@@ -392,7 +444,7 @@ const useRealtimeStream = (): RealtimeStreamControls => {
                 wsRef.current.send(JSON.stringify({ command: "SET_PAUSED", value: true }));
                 console.log("일시정지 제어 메시지 전송");
             }
-            
+
             vadPause();
             setIsPaused(true);
             console.log("VAD 일시정지 완료");
@@ -407,7 +459,7 @@ const useRealtimeStream = (): RealtimeStreamControls => {
             console.log("녹음 중이 아니거나 일시정지 상태가 아님");
             return;
         }
-        
+
         console.log("녹음 재개");
         try {
             // 백엔드에 재개 상태 알림
@@ -415,7 +467,7 @@ const useRealtimeStream = (): RealtimeStreamControls => {
                 wsRef.current.send(JSON.stringify({ command: "SET_PAUSED", value: false }));
                 console.log("재개 제어 메시지 전송");
             }
-            
+
             vadStart();
             setIsPaused(false);
             console.log("VAD 재개 완료");
@@ -428,13 +480,13 @@ const useRealtimeStream = (): RealtimeStreamControls => {
     useEffect(() => {
         return () => {
             console.log("컴포넌트 언마운트 - 리소스 정리 시작");
-            
+
             // 침묵 인터벌 정리
             if (silenceIntervalRef.current) {
                 clearInterval(silenceIntervalRef.current);
                 silenceIntervalRef.current = null;
             }
-            
+
             // VAD 강제 중지
             try {
                 if (vadPause) {
@@ -444,7 +496,7 @@ const useRealtimeStream = (): RealtimeStreamControls => {
             } catch (e) {
                 console.error("언마운트 시 VAD pause 오류:", e);
             }
-            
+
             // 마이크 스트림 정리
             if (mediaStreamRef.current) {
                 mediaStreamRef.current.getTracks().forEach(track => {
@@ -453,7 +505,7 @@ const useRealtimeStream = (): RealtimeStreamControls => {
                 });
                 mediaStreamRef.current = null;
             }
-            
+
             // WebSocket 정리
             if (wsRef.current) {
                 const ws = wsRef.current;
@@ -465,7 +517,7 @@ const useRealtimeStream = (): RealtimeStreamControls => {
                 }
                 wsRef.current = null;
             }
-            
+
             console.log("컴포넌트 언마운트 - 리소스 정리 완료");
         };
     }, [vadPause]);
@@ -476,6 +528,8 @@ const useRealtimeStream = (): RealtimeStreamControls => {
         transcript,
         partialText,
         translation,
+        timelineSummaries,
+        isGeneratingSummary,
         startRecording,
         stopRecording,
         pauseRecording,

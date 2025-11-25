@@ -1,19 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
+from pydantic import BaseModel
 import ulid
 
-from backend.dependencies import get_db
+from backend.dependencies import get_db, get_current_user
 from backend import models
 from backend.schemas.report import SummaryOut, ActionItemOut, ReportOut
 from backend.core.llm.service import LLMService
 from backend.core.integrations import JiraService, NotionService
+from backend.core.auth.encryption import decrypt_data
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
-
-# 외부 연동 서비스
-jira = JiraService()
-notion = NotionService()
 
 
 # ============================================
@@ -113,6 +111,193 @@ async def get_meeting_action_items(
         )
         for item in action_items
     ]
+
+
+# ============================================
+# 2-1. 액션 아이템 생성
+# ============================================
+
+class ActionItemCreate(BaseModel):
+    """액션 아이템 생성 요청"""
+    title: str
+    description: str = ""
+    due_dt: Optional[str] = None
+    priority: str = "MEDIUM"
+    assignee_name: Optional[str] = None  # 표시용 담당자 이름
+    jira_assignee_id: Optional[str] = None  # Jira 동기화용
+
+@router.post("/{meeting_id}/action-items", response_model=ActionItemOut, status_code=status.HTTP_201_CREATED)
+async def create_action_item(
+    meeting_id: str,
+    item: ActionItemCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    액션 아이템 생성
+    """
+    from datetime import datetime
+    
+    # 회의 존재 확인
+    meeting = db.query(models.Meeting).filter(
+        models.Meeting.MEETING_ID == meeting_id
+    ).first()
+    
+    if not meeting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Meeting {meeting_id} not found"
+        )
+    
+    # 액션 아이템 생성
+    new_item = models.ActionItem(
+        ITEM_ID=str(ulid.new()),
+        MEETING_ID=meeting_id,
+        TITLE=item.title,
+        DESCRIPTION=item.description,
+        DUE_DT=datetime.fromisoformat(item.due_dt) if item.due_dt else None,
+        PRIORITY=item.priority,
+        STATUS="TODO",
+        ASSIGNEE_ID=current_user.USER_ID,  # 항상 현재 사용자로 설정 (내부 관리용)
+        ASSIGNEE_NAME=item.assignee_name,  # 표시용 담당자 이름
+        JIRA_ASSIGNEE_ID=item.jira_assignee_id  # Jira 담당자 ID (있는 경우)
+    )
+    
+    db.add(new_item)
+    db.commit()
+    db.refresh(new_item)
+    
+    return ActionItemOut(
+        item_id=new_item.ITEM_ID,
+        meeting_id=new_item.MEETING_ID,
+        title=new_item.TITLE,
+        description=new_item.DESCRIPTION,
+        due_dt=new_item.DUE_DT,
+        priority=new_item.PRIORITY,
+        status=new_item.STATUS,
+        assignee_id=new_item.ASSIGNEE_ID,
+        assignee_name=new_item.ASSIGNEE_NAME,
+        jira_assignee_id=new_item.JIRA_ASSIGNEE_ID,
+        external_tool=new_item.EXTERNAL_TOOL,
+        created_dt=new_item.CREATED_DT,
+        updated_dt=new_item.UPDATED_DT
+    )
+
+
+# ============================================
+# 2-2. 액션 아이템 수정
+# ============================================
+
+class ActionItemUpdate(BaseModel):
+    """액션 아이템 수정 요청"""
+    title: Optional[str] = None
+    description: Optional[str] = None
+    due_dt: Optional[str] = None
+    priority: Optional[str] = None
+    status: Optional[str] = None
+    assignee_name: Optional[str] = None  # 표시용 담당자 이름
+    jira_assignee_id: Optional[str] = None  # Jira 동기화용
+    assignee_id: Optional[str] = None  # 내부용 (일반적으로 수정 안 함)
+
+@router.patch("/{meeting_id}/action-items/{item_id}", response_model=ActionItemOut)
+async def update_action_item(
+    meeting_id: str,
+    item_id: str,
+    updates: ActionItemUpdate,
+    db: Session = Depends(get_db)
+):
+    """
+    액션 아이템 수정
+    """
+    from datetime import datetime
+    
+    # 액션 아이템 조회
+    item = db.query(models.ActionItem).filter(
+        models.ActionItem.ITEM_ID == item_id,
+        models.ActionItem.MEETING_ID == meeting_id
+    ).first()
+    
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Action item {item_id} not found"
+        )
+    
+    # 업데이트
+    if updates.title is not None:
+        item.TITLE = updates.title
+    if updates.description is not None:
+        item.DESCRIPTION = updates.description
+    if updates.due_dt is not None:
+        # 날짜 파싱: 빈 문자열, '미정', 잘못된 형식 처리
+        if updates.due_dt and updates.due_dt.strip() and updates.due_dt not in ['미정', 'undefined', 'null']:
+            try:
+                item.DUE_DT = datetime.fromisoformat(updates.due_dt)
+            except ValueError as e:
+                print(f"[WARNING] Invalid date format: {updates.due_dt}, error: {e}")
+                item.DUE_DT = None
+        else:
+            item.DUE_DT = None
+    if updates.priority is not None:
+        item.PRIORITY = updates.priority
+    if updates.status is not None:
+        item.STATUS = updates.status
+    if updates.assignee_name is not None:
+        item.ASSIGNEE_NAME = updates.assignee_name
+    if updates.jira_assignee_id is not None:
+        item.JIRA_ASSIGNEE_ID = updates.jira_assignee_id
+    if updates.assignee_id is not None:
+        item.ASSIGNEE_ID = updates.assignee_id
+    
+    db.commit()
+    db.refresh(item)
+    
+    return ActionItemOut(
+        item_id=item.ITEM_ID,
+        meeting_id=item.MEETING_ID,
+        title=item.TITLE,
+        description=item.DESCRIPTION,
+        due_dt=item.DUE_DT,
+        priority=item.PRIORITY,
+        status=item.STATUS,
+        assignee_id=item.ASSIGNEE_ID,
+        assignee_name=item.ASSIGNEE_NAME,
+        jira_assignee_id=item.JIRA_ASSIGNEE_ID,
+        external_tool=item.EXTERNAL_TOOL,
+        created_dt=item.CREATED_DT,
+        updated_dt=item.UPDATED_DT
+    )
+
+
+# ============================================
+# 2-3. 액션 아이템 삭제
+# ============================================
+
+@router.delete("/{meeting_id}/action-items/{item_id}", status_code=status.HTTP_200_OK)
+async def delete_action_item(
+    meeting_id: str,
+    item_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    액션 아이템 삭제
+    """
+    # 액션 아이템 조회
+    item = db.query(models.ActionItem).filter(
+        models.ActionItem.ITEM_ID == item_id,
+        models.ActionItem.MEETING_ID == meeting_id
+    ).first()
+    
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Action item {item_id} not found"
+        )
+    
+    db.delete(item)
+    db.commit()
+    
+    return {"message": "Action item deleted successfully", "item_id": item_id}
 
 
 # ============================================
@@ -458,28 +643,161 @@ async def translate_meeting_content(
 
 
 # ============================================
-# 7. Jira 연동 (기존 유지)
+# 7. Jira 연동 (개선됨)
 # ============================================
+
+class JiraSyncRequest(BaseModel):
+    """Request body for Jira sync."""
+    project_key: str
+
 @router.post("/{meeting_id}/action-items/to-jira")
 async def push_action_items_to_jira(
     meeting_id: str,
-    db: Session = Depends(get_db)
+    request: JiraSyncRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
-    """액션 아이템을 Jira로 전송"""
+    """
+    액션 아이템을 선택한 Jira 프로젝트로 동기화.
     
+    - 이미 동기화된 항목(external_tool 존재)은 업데이트
+    - 새 항목은 생성
+    - priority, due_date 필드 매핑
+    - 부분 실패 처리 (일부 성공 시에도 결과 반환)
+    """
+    project_key = request.project_key
+    from backend.core.auth.encryption import decrypt_data
+    
+    user_id = current_user.USER_ID
+    
+    # 회의 존재 확인
+    meeting = db.query(models.Meeting).filter(
+        models.Meeting.MEETING_ID == meeting_id
+    ).first()
+    
+    if not meeting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Meeting {meeting_id} not found"
+        )
+    
+    # Jira 설정 확인
+    jira_setting = db.query(models.UserIntegrationSetting).filter(
+        models.UserIntegrationSetting.USER_ID == user_id,
+        models.UserIntegrationSetting.PLATFORM == "jira"
+    ).first()
+    
+    if not jira_setting:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Jira not configured. Please set up Jira integration in settings."
+        )
+    
+    # Jira 서비스 초기화
+    config = jira_setting.CONFIG
+    decrypted_token = decrypt_data(config["api_token"])
+    
+    jira_service = JiraService(
+        base_url=config["base_url"],
+        email=config["email"],
+        api_token=decrypted_token,
+        project_key=project_key
+    )
+    
+    # 액션 아이템 조회
     action_items = db.query(models.ActionItem).filter(
         models.ActionItem.MEETING_ID == meeting_id
     ).all()
     
-    created = []
-    for item in action_items:
-        resp = jira.create_issue(
-            title=item.TITLE,
-            description=item.DESCRIPTION or ""
+    if not action_items:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No action items found for this meeting"
         )
-        created.append(resp)
     
-    return {"created": created, "count": len(created)}
+    # 동기화 결과 추적
+    created = []
+    updated = []
+    failed = []
+    
+    for item in action_items:
+        try:
+            # external_tool에 Jira 이슈 키가 있으면 업데이트 시도
+            if item.EXTERNAL_TOOL:
+                # 기존 이슈 키에서 프로젝트 추출 (예: KAN-123 -> KAN)
+                existing_project = item.EXTERNAL_TOOL.split('-')[0] if '-' in item.EXTERNAL_TOOL else None
+                
+                # 같은 프로젝트면 업데이트, 다른 프로젝트면 새로 생성
+                if existing_project == project_key:
+                    try:
+                        result = jira_service.update_issue(
+                            issue_key=item.EXTERNAL_TOOL,
+                            title=item.TITLE,
+                            description=item.DESCRIPTION,
+                            priority=item.PRIORITY,
+                            due_date=item.DUE_DT,
+                            assignee_id=item.JIRA_ASSIGNEE_ID
+                        )
+                        updated.append({
+                            "item_id": item.ITEM_ID,
+                            "issue_key": item.EXTERNAL_TOOL,
+                            "action": "updated"
+                        })
+                        continue  # 업데이트 성공 시 다음 항목으로
+                    except Exception as e:
+                        # 이슈가 삭제되었거나 접근 불가 시 새로 생성으로 fallback
+                        if "does not exist" in str(e).lower() or "404" in str(e):
+                            pass  # 아래 생성 로직으로 진행
+                        else:
+                            raise
+            
+            # 새 이슈 생성 (EXTERNAL_TOOL이 없거나, 다른 프로젝트이거나, 업데이트 실패한 경우)
+            resp = jira_service.create_issue(
+                title=item.TITLE,
+                description=item.DESCRIPTION or "",
+                project_key=project_key,
+                priority=item.PRIORITY,
+                due_date=item.DUE_DT,
+                assignee_id=item.JIRA_ASSIGNEE_ID
+            )
+            
+            issue_key = resp.get("key")
+            
+            # external_tool에 이슈 키 저장
+            item.EXTERNAL_TOOL = issue_key
+            db.commit()
+            
+            created.append({
+                "item_id": item.ITEM_ID,
+                "issue_key": issue_key,
+                "action": "created"
+            })
+                
+        except Exception as e:
+            # 개별 항목 실패 시 계속 진행
+            failed.append({
+                "item_id": item.ITEM_ID,
+                "title": item.TITLE,
+                "error": str(e)
+            })
+    
+    # 회의에 마지막 사용 프로젝트 저장
+    meeting.JIRA_PROJECT_KEY = project_key
+    db.commit()
+    
+    return {
+        "message": "Jira synchronization completed",
+        "project_key": project_key,
+        "created": created,
+        "updated": updated,
+        "failed": failed,
+        "summary": {
+            "total": len(action_items),
+            "created_count": len(created),
+            "updated_count": len(updated),
+            "failed_count": len(failed)
+        }
+    }
 
 
 # ============================================
@@ -488,9 +806,33 @@ async def push_action_items_to_jira(
 @router.post("/{meeting_id}/report/to-notion")
 async def push_report_to_notion(
     meeting_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
     """전체 보고서를 Notion으로 전송"""
+    
+    # 사용자 Notion 설정 조회
+    user_id = current_user.USER_ID
+    notion_setting = db.query(models.UserIntegrationSetting).filter(
+        models.UserIntegrationSetting.USER_ID == user_id,
+        models.UserIntegrationSetting.PLATFORM == "notion"
+    ).first()
+    
+    if not notion_setting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notion not configured. Please set up Notion integration in settings."
+        )
+    
+    # Notion 설정 복호화
+    config = notion_setting.CONFIG
+    decrypted_token = decrypt_data(config["api_token"])
+    
+    notion = NotionService(
+        api_token=decrypted_token,
+        parent_page_id=config.get("parent_page_id"),
+        database_id=config.get("database_id")
+    )
     
     summary = db.query(models.Summary).filter(
         models.Summary.MEETING_ID == meeting_id
@@ -522,10 +864,259 @@ async def push_report_to_notion(
 
 
 # ============================================
-# 8. 테스트용 더미 데이터 생성
+# 8. Notion 포괄적 회의록 (멘토 피드백 반영) ⭐
+# ============================================
+
+class NotionExportRequest(BaseModel):
+    parent_page_id: Optional[str] = None
+
+@router.post("/{meeting_id}/notion/comprehensive")
+async def push_comprehensive_report_to_notion(
+    meeting_id: str,
+    request: NotionExportRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    **참석 못한 사람도 완벽히 이해할 수 있는 포괄적인 회의록을 Notion에 생성**
+    
+    ⭐ 필수 포함 섹션:
+    - 👥 참석자 (주최자, 참석자, 불참자)
+    - 📝 요약
+    - ⚡ 액션 아이템 (담당자, 마감일)
+    
+    날짜 형식: 2024년 11월 25일 (월) 14:00 - 15:30
+    
+    Request Body:
+    - parent_page_id: 페이지를 생성할 부모 페이지 ID (optional)
+    """
+    from backend.core.integrations.notion_service import Participant
+    
+    # 1. 회의 정보 조회
+    meeting = db.query(models.Meeting).filter(
+        models.Meeting.MEETING_ID == meeting_id
+    ).first()
+    
+    if not meeting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Meeting {meeting_id} not found"
+        )
+    
+    # 2. 요약 조회 (⭐ 필수)
+    summary = db.query(models.Summary).filter(
+        models.Summary.MEETING_ID == meeting_id
+    ).first()
+    
+    summary_text = summary.CONTENT if summary else "요약 없음"
+    
+    # 3. 액션 아이템 조회 (⭐ 필수)
+    action_items_db = db.query(models.ActionItem).filter(
+        models.ActionItem.MEETING_ID == meeting_id
+    ).all()
+    
+    action_items = [
+        {
+            'title': item.TITLE,
+            'assignee': getattr(item, 'ASSIGNEE_NAME', None) or item.ASSIGNEE_ID,
+            'due_date': item.DUE_DT,
+            'status': item.STATUS or 'PENDING',
+            'description': item.DESCRIPTION,
+            'priority': item.PRIORITY or 'MEDIUM'
+        }
+        for item in action_items_db
+    ]
+    
+    # 4. 참석자 정보 (⭐ 필수)
+    participants = [
+        Participant(
+            user_id=meeting.CREATOR_ID or "unknown",
+            name=current_user.NAME or current_user.EMAIL or "주최자",
+            role="host"
+        )
+    ]
+    
+    # 5. 사용자 Notion 설정 조회
+    user_id = current_user.USER_ID
+    notion_setting = db.query(models.UserIntegrationSetting).filter(
+        models.UserIntegrationSetting.USER_ID == user_id,
+        models.UserIntegrationSetting.PLATFORM == "notion"
+    ).first()
+    
+    if not notion_setting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notion not configured. Please set up Notion integration in settings."
+        )
+    
+    # Notion 설정 복호화
+    config = notion_setting.CONFIG
+    decrypted_token = decrypt_data(config["api_token"])
+    
+    # 요청에서 받은 parent_page_id 사용
+    notion = NotionService(
+        api_token=decrypted_token,
+        parent_page_id=request.parent_page_id,
+        database_id=None
+    )
+    
+    # 6. Notion 페이지 생성
+    try:
+        result = notion.create_comprehensive_meeting_page(
+            meeting_title=meeting.TITLE or f"회의 {meeting_id}",
+            meeting_date=meeting.START_DT,
+            meeting_end_date=meeting.END_DT,
+            location="온라인",
+            meeting_type="정기",
+            participants=participants,
+            absent_members=[],
+            purpose="",
+            summary=summary_text,
+            discussions=[],
+            decisions=[],
+            action_items=action_items,
+            pending_issues=[],
+            attachments=[],
+            next_meeting_agenda=None,
+            audio_url=f"https://roundnote.com/meetings/{meeting_id}/audio",
+            transcript_url=f"https://roundnote.com/meetings/{meeting_id}/transcript"
+        )
+        
+        return {
+            "success": True,
+            "notion_page_id": result["id"],
+            "notion_url": result["url"],
+            "message": "포괄적 회의록이 Notion에 생성되었습니다.",
+            "included": {
+                "participants": len(participants),
+                "summary": bool(summary_text),
+                "action_items": len(action_items)
+            }
+        }
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Notion 설정 오류: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Notion 페이지 생성 실패: {str(e)}"
+        )
+
+
+# ============================================
+# 9. Notion 액션 아이템만 Tasks DB에 추가
+# ============================================
+
+class NotionActionItemsRequest(BaseModel):
+    database_id: Optional[str] = None
+
+@router.post("/{meeting_id}/notion/action-items")
+async def push_action_items_to_notion_db(
+    meeting_id: str,
+    request: NotionActionItemsRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    액션 아이템만 Notion Tasks 데이터베이스에 추가
+    
+    사용자의 Notion 설정 필요
+    
+    Request Body:
+    - database_id: 액션 아이템을 추가할 데이터베이스 ID (optional)
+    """
+    
+    # 사용자 Notion 설정 조회
+    user_id = current_user.USER_ID
+    notion_setting = db.query(models.UserIntegrationSetting).filter(
+        models.UserIntegrationSetting.USER_ID == user_id,
+        models.UserIntegrationSetting.PLATFORM == "notion"
+    ).first()
+    
+    if not notion_setting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notion not configured. Please set up Notion integration in settings."
+        )
+    
+    # Notion 설정 복호화
+    config = notion_setting.CONFIG
+    decrypted_token = decrypt_data(config["api_token"])
+    
+    # 요청에서 받은 database_id 사용
+    notion = NotionService(
+        api_token=decrypted_token,
+        parent_page_id=None,
+        database_id=request.database_id
+    )
+    
+    # 회의 확인
+    meeting = db.query(models.Meeting).filter(
+        models.Meeting.MEETING_ID == meeting_id
+    ).first()
+    
+    if not meeting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Meeting {meeting_id} not found"
+        )
+    
+    # 액션 아이템 조회
+    action_items = db.query(models.ActionItem).filter(
+        models.ActionItem.MEETING_ID == meeting_id
+    ).all()
+    
+    if not action_items:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="액션 아이템이 없습니다"
+        )
+    
+    try:
+        created_items = []
+        
+        for item in action_items:
+            result = notion.create_action_item_in_database(
+                title=item.TITLE,
+                assignee=getattr(item, 'ASSIGNEE_NAME', None) or item.ASSIGNEE_ID,
+                due_date=item.DUE_DT,
+                priority=item.PRIORITY or "MEDIUM",
+                status=item.STATUS or "PENDING",
+                description=item.DESCRIPTION,
+                meeting_title=meeting.TITLE
+            )
+            created_items.append(result)
+        
+        return {
+            "success": True,
+            "created_count": len(created_items),
+            "items": created_items,
+            "message": f"{len(created_items)}개의 액션 아이템이 Notion에 추가되었습니다."
+        }
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Notion 설정 오류: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Notion 추가 실패: {str(e)}"
+        )
+
+
+# ============================================
+# 10. 테스트용 더미 데이터 생성
 # ============================================
 @router.post("/dummy/create-sample-data")
-async def create_sample_data(db: Session = Depends(get_db)):
+async def create_sample_data(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
     """
     테스트용 더미 회의 데이터 생성
     
@@ -553,7 +1144,7 @@ async def create_sample_data(db: Session = Depends(get_db)):
         """,
         START_DT=datetime.now(),
         END_DT=datetime.now(),
-        CREATOR_ID="dummy_user_123"
+        CREATOR_ID=current_user.USER_ID
     )
     db.add(meeting)
     

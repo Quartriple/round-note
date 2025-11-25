@@ -3,10 +3,17 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Card } from "@/shared/ui/card";
-import { ArrowLeft, Link2, CheckCircle2, AlertCircle, ExternalLink, XCircle } from "lucide-react";
+import { ArrowLeft, Link2, CheckCircle2, AlertCircle, ExternalLink, XCircle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Switch } from "@/shared/ui/switch";
 import { Badge } from "@/shared/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
 
 interface PlatformSettingsProps {
   onBack: () => void;
@@ -71,6 +78,57 @@ export function PlatformSettings({ onBack }: PlatformSettingsProps) {
         console.error("Failed to load platform settings:", error);
       }
     }
+    
+    // Jira 설정 확인
+    const checkJiraSettings = async () => {
+      try {
+        const { getJiraSettings } = await import('@/features/meetings/reportsService');
+        const settings = await getJiraSettings();
+        
+        if (settings && settings.is_active) {
+          setPlatforms(prev => prev.map(p => 
+            p.id === "jira" 
+              ? { ...p, connected: true, enabled: true }
+              : p
+          ));
+        }
+      } catch (error) {
+        // Jira 설정이 없으면 연동 상태를 false로 설정
+        console.log("No Jira settings found");
+        setPlatforms(prev => prev.map(p => 
+          p.id === "jira" 
+            ? { ...p, connected: false, enabled: false }
+            : p
+        ));
+      }
+    };
+    
+    // Notion 설정 확인
+    const checkNotionSettings = async () => {
+      try {
+        const { getNotionSettings } = await import('@/features/meetings/reportsService');
+        const settings = await getNotionSettings();
+        
+        if (settings && settings.is_active) {
+          setPlatforms(prev => prev.map(p => 
+            p.id === "notion" 
+              ? { ...p, connected: true, enabled: true }
+              : p
+          ));
+        }
+      } catch (error) {
+        // Notion 설정이 없으면 연동 상태를 false로 설정
+        console.log("No Notion settings found");
+        setPlatforms(prev => prev.map(p => 
+          p.id === "notion" 
+            ? { ...p, connected: false, enabled: false }
+            : p
+        ));
+      }
+    };
+    
+    checkJiraSettings();
+    checkNotionSettings();
   }, []);
 
   const saveSettings = (updatedPlatforms: Platform[]) => {
@@ -119,42 +177,163 @@ export function PlatformSettings({ onBack }: PlatformSettingsProps) {
   };
 
   // 연동하기
-  const saveConnection = (platformId: string) => {
-    if (!apiKeyInput.trim()) {
-      toast.error("API 키 또는 토큰을 입력해주세요");
-      return;
-    }
-
-    const updatedPlatforms = platforms.map(p => 
-      p.id === platformId 
-        ? { ...p, connected: true, enabled: true, apiKey: apiKeyInput, webhookUrl: webhookInput }
-        : p
-    );
-    
-    saveSettings(updatedPlatforms);
-    setExpandedPlatform(null);
-    setApiKeyInput("");
-    setWebhookInput("");
-    
+  const saveConnection = async (platformId: string) => {
     const platform = platforms.find(p => p.id === platformId);
-    toast.success(`${platform?.name} 연동이 완료되었습니다`);
+    
+    if (platformId === "jira") {
+      // Jira 연동 - Backend API 호출
+      if (!webhookInput.trim() || !apiKeyInput.trim() || !(platform as any).tempEmail) {
+        toast.error("모든 필수 항목을 입력해주세요");
+        return;
+      }
+
+      try {
+        const { saveJiraSettings } = await import('@/features/meetings/reportsService');
+        
+        toast.info("Jira 연결 중...");
+        
+        const result = await saveJiraSettings({
+          base_url: webhookInput.trim(),
+          email: (platform as any).tempEmail.trim(),
+          api_token: apiKeyInput.trim(),
+          default_project_key: (platform as any).tempProjectKey?.trim() || undefined,
+        });
+
+        const updatedPlatforms = platforms.map(p => 
+          p.id === "jira" 
+            ? { 
+                ...p, 
+                connected: true, 
+                enabled: true, 
+                apiKey: apiKeyInput,
+                webhookUrl: webhookInput,
+                tempEmail: undefined,
+                tempProjectKey: undefined
+              }
+            : p
+        );
+        
+        saveSettings(updatedPlatforms);
+        setExpandedPlatform(null);
+        setApiKeyInput("");
+        setWebhookInput("");
+        
+        toast.success(`Jira 연동 완료! (${result.projects_found}개 프로젝트 발견)`);
+      } catch (error: any) {
+        toast.error(`Jira 연동 실패: ${error.message}`);
+      }
+    } else if (platformId === "notion") {
+      // Notion 연동 - Backend API 호출 (API 토큰만 저장)
+      if (!apiKeyInput.trim()) {
+        toast.error("API 토큰을 입력해주세요");
+        return;
+      }
+
+      try {
+        const { saveNotionSettings } = await import('@/features/meetings/reportsService');
+        
+        toast.info("Notion 연결 중...");
+        
+        // API 토큰만 저장 (페이지/DB는 export 시점에 선택)
+        await saveNotionSettings({
+          api_token: apiKeyInput.trim(),
+        });
+
+        const updatedPlatforms = platforms.map(p => 
+          p.id === "notion" 
+            ? { 
+                ...p, 
+                connected: true, 
+                enabled: true, 
+                apiKey: apiKeyInput,
+                tempParentPageId: undefined,
+                tempDatabaseId: undefined
+              }
+            : p
+        );
+        
+        saveSettings(updatedPlatforms);
+        setExpandedPlatform(null);
+        setApiKeyInput("");
+        setWebhookInput("");
+        
+        toast.success("Notion 연동 완료! (내보낼 때 페이지를 선택할 수 있습니다)");
+      } catch (error: any) {
+        toast.error(`Notion 연동 실패: ${error.message}`);
+      }
+    } else {
+      // 다른 플랫폼 (기존 로직)
+      if (!apiKeyInput.trim()) {
+        toast.error("API 키 또는 토큰을 입력해주세요");
+        return;
+      }
+
+      const updatedPlatforms = platforms.map(p => 
+        p.id === platformId 
+          ? { ...p, connected: true, enabled: true, apiKey: apiKeyInput, webhookUrl: webhookInput }
+          : p
+      );
+      
+      saveSettings(updatedPlatforms);
+      setExpandedPlatform(null);
+      setApiKeyInput("");
+      setWebhookInput("");
+      
+      toast.success(`${platform?.name} 연동이 완료되었습니다`);
+    }
   };
 
   // 연동 해제
-  const disconnectPlatform = (platformId: string, e: React.MouseEvent) => {
+  const disconnectPlatform = async (platformId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     
     const platform = platforms.find(p => p.id === platformId);
     
-    const updatedPlatforms = platforms.map(p => 
-      p.id === platformId 
-        ? { ...p, connected: false, enabled: false, apiKey: undefined, webhookUrl: undefined }
-        : p
-    );
-    
-    saveSettings(updatedPlatforms);
-    setExpandedPlatform(null);
-    toast.success(`${platform?.name} 연동이 해제되었습니다`);
+    if (platformId === "jira") {
+      try {
+        const { deleteJiraSettings } = await import('@/features/meetings/reportsService');
+        await deleteJiraSettings();
+        
+        const updatedPlatforms = platforms.map(p => 
+          p.id === "jira" 
+            ? { ...p, connected: false, enabled: false, apiKey: undefined, webhookUrl: undefined }
+            : p
+        );
+        
+        saveSettings(updatedPlatforms);
+        setExpandedPlatform(null);
+        toast.success("Jira 연동이 해제되었습니다");
+      } catch (error: any) {
+        toast.error(`연동 해제 실패: ${error.message}`);
+      }
+    } else if (platformId === "notion") {
+      try {
+        const { deleteNotionSettings } = await import('@/features/meetings/reportsService');
+        await deleteNotionSettings();
+        
+        const updatedPlatforms = platforms.map(p => 
+          p.id === "notion" 
+            ? { ...p, connected: false, enabled: false, apiKey: undefined }
+            : p
+        );
+        
+        saveSettings(updatedPlatforms);
+        setExpandedPlatform(null);
+        toast.success("Notion 연동이 해제되었습니다");
+      } catch (error: any) {
+        toast.error(`연동 해제 실패: ${error.message}`);
+      }
+    } else {
+      const updatedPlatforms = platforms.map(p => 
+        p.id === platformId 
+          ? { ...p, connected: false, enabled: false, apiKey: undefined, webhookUrl: undefined }
+          : p
+      );
+      
+      saveSettings(updatedPlatforms);
+      setExpandedPlatform(null);
+      toast.success(`${platform?.name} 연동이 해제되었습니다`);
+    }
   };
 
   return (
@@ -222,32 +401,102 @@ export function PlatformSettings({ onBack }: PlatformSettingsProps) {
               {/* Configuration Form - 상자를 클릭하면 열림 */}
               {expandedPlatform === platform.id && !platform.connected && (
                 <div className="mt-4 p-4 bg-white border-2 border-primary/20 rounded-lg space-y-4" onClick={(e) => e.stopPropagation()}>
-                  <div className="space-y-2">
-                    <Label htmlFor={`${platform.id}-api-key`}>
-                      API 키 / 토큰 *
-                    </Label>
-                    <Input
-                      id={`${platform.id}-api-key`}
-                      type="password"
-                      placeholder={`${platform.name} API 키 또는 토큰을 입력하세요`}
-                      value={apiKeyInput}
-                      onChange={(e) => setApiKeyInput(e.target.value)}
-                    />
-                  </div>
-
-                  {(platform.id === "notion") && (
-                    <div className="space-y-2">
-                      <Label htmlFor={`${platform.id}-webhook`}>
-                        Webhook URL (선택사항)
-                      </Label>
-                      <Input
-                        id={`${platform.id}-webhook`}
-                        type="url"
-                        placeholder="Webhook URL을 입력하세요"
-                        value={webhookInput}
-                        onChange={(e) => setWebhookInput(e.target.value)}
-                      />
-                    </div>
+                  {platform.id === "jira" ? (
+                    <>
+                      <div className="space-y-2">
+                        <Label htmlFor="jira-base-url">
+                          Jira Base URL *
+                        </Label>
+                        <Input
+                          id="jira-base-url"
+                          type="url"
+                          placeholder="https://yourcompany.atlassian.net"
+                          value={webhookInput}
+                          onChange={(e) => setWebhookInput(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="jira-email">
+                          Email *
+                        </Label>
+                        <Input
+                          id="jira-email"
+                          type="email"
+                          placeholder="your-email@example.com"
+                          value={(platform as any).tempEmail || ""}
+                          onChange={(e) => {
+                            setPlatforms(prev => prev.map(p => 
+                              p.id === "jira" ? { ...p, tempEmail: e.target.value } : p
+                            ));
+                          }}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="jira-api-token">
+                          API Token *
+                        </Label>
+                        <Input
+                          id="jira-api-token"
+                          type="password"
+                          placeholder="Jira API 토큰을 입력하세요"
+                          value={apiKeyInput}
+                          onChange={(e) => setApiKeyInput(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="jira-project-key">
+                          기본 프로젝트 키 (선택사항)
+                        </Label>
+                        <Input
+                          id="jira-project-key"
+                          type="text"
+                          placeholder="PROJ"
+                          value={(platform as any).tempProjectKey || ""}
+                          onChange={(e) => {
+                            setPlatforms(prev => prev.map(p => 
+                              p.id === "jira" ? { ...p, tempProjectKey: e.target.value } : p
+                            ));
+                          }}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {platform.id === "notion" ? (
+                        <>
+                          <div className="space-y-2">
+                            <Label htmlFor="notion-api-token">
+                              API Token *
+                            </Label>
+                            <Input
+                              id="notion-api-token"
+                              type="password"
+                              placeholder="Notion Integration Token을 입력하세요"
+                              value={apiKeyInput}
+                              onChange={(e) => setApiKeyInput(e.target.value)}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              💡 페이지와 데이터베이스는 회의록을 내보낼 때 선택할 수 있습니다
+                            </p>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="space-y-2">
+                            <Label htmlFor={`${platform.id}-api-key`}>
+                              API 키 / 토큰 *
+                            </Label>
+                            <Input
+                              id={`${platform.id}-api-key`}
+                              type="password"
+                              placeholder={`${platform.name} API 키 또는 토큰을 입력하세요`}
+                              value={apiKeyInput}
+                              onChange={(e) => setApiKeyInput(e.target.value)}
+                            />
+                          </div>
+                        </>
+                      )}
+                    </>
                   )}
 
                   <div className="flex gap-2 pt-2">

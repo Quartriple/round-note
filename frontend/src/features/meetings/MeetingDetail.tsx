@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/card';
 import { Button } from '@/shared/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
@@ -61,11 +61,20 @@ interface MeetingDetailProps {
 }
 
 export function MeetingDetail({
-  meeting,
+  meeting: meetingProp,
   onUpdateMeeting,
   onDeleteMeeting,
   onClose,
 }: MeetingDetailProps) {
+  // 로컬 상태로 meeting 관리하여 즉시 업데이트 반영
+  const [meeting, setMeeting] = useState(meetingProp);
+  
+  // meeting prop이 변경되면 로컬 상태도 업데이트
+  React.useEffect(() => {
+    console.log('[MeetingDetail] Meeting prop updated:', meetingProp);
+    setMeeting(meetingProp);
+  }, [meetingProp]);
+  
   const [activeTab, setActiveTab] = useState('basic');
 
   // Refs for scroll navigation
@@ -121,21 +130,56 @@ export function MeetingDetail({
 
   // Set audio src with token on mount and when audioUrl changes
   useEffect(() => {
-    if (meeting.audioUrl && meeting.audioUrl.trim() !== '') {
-      const token = localStorage.getItem('access_token');
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const fullAudioUrl = `${apiUrl}/api/v1/meetings/${meeting.id}/audio?token=${token}`;
-      console.log('[MeetingDetail] Setting audio URL:', fullAudioUrl);
-      setAudioSrc(fullAudioUrl);
-      
-      // 오디오 엘리먼트가 있으면 강제로 로드
-      if (audioPlayerRef.current) {
-        audioPlayerRef.current.load();
+    let objectUrl: string | null = null;
+    
+    async function loadAudio() {
+      if (meeting.audioUrl && meeting.audioUrl.trim() !== '') {
+        try {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+          const audioApiUrl = `${apiUrl}/api/v1/meetings/${meeting.id}/audio`;
+          
+          console.log('[MeetingDetail] Fetching audio from:', audioApiUrl);
+          
+          // httpOnly Cookie를 포함하여 오디오 파일 가져오기
+          const response = await fetch(audioApiUrl, {
+            credentials: 'include', // httpOnly Cookie 전송
+          });
+          
+          if (!response.ok) {
+            console.error('[MeetingDetail] Audio fetch failed:', response.status, response.statusText);
+            setAudioSrc('');
+            return;
+          }
+          
+          // Blob으로 변환하고 Object URL 생성
+          const blob = await response.blob();
+          objectUrl = URL.createObjectURL(blob);
+          
+          console.log('[MeetingDetail] Audio loaded successfully, Blob URL:', objectUrl);
+          setAudioSrc(objectUrl);
+          
+          // 오디오 엘리먼트가 있으면 강제로 로드
+          if (audioPlayerRef.current) {
+            audioPlayerRef.current.load();
+          }
+        } catch (error) {
+          console.error('[MeetingDetail] Audio load error:', error);
+          setAudioSrc('');
+        }
+      } else {
+        console.log('[MeetingDetail] No audio URL available:', meeting.audioUrl);
+        setAudioSrc('');
       }
-    } else {
-      console.log('[MeetingDetail] No audio URL available:', meeting.audioUrl);
-      setAudioSrc('');
     }
+    
+    loadAudio();
+    
+    // Cleanup: Object URL 해제
+    return () => {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
   }, [meeting.id, meeting.audioUrl]);
 
   // 페이지 로드 시 마지막 선택 언어로 자동 번역
@@ -166,20 +210,78 @@ export function MeetingDetail({
     }
   };
 
-  const handleToggleActionItem = (actionItemId: string) => {
-    const updatedActionItems = meeting.actionItems.map(item =>
-      item.id === actionItemId ? { ...item, completed: !item.completed } : item
-    );
+  const handleToggleActionItem = async (actionItemId: string) => {
+    const item = meeting.actionItems.find(item => item.id === actionItemId);
+    if (!item) return;
 
-    onUpdateMeeting({ ...meeting, actionItems: updatedActionItems });
+    const newCompleted = !item.completed;
+    
+    // 로컬 상태 즉시 업데이트 (UI 반응성)
+    const updatedActionItems = meeting.actionItems.map(item =>
+      item.id === actionItemId ? { ...item, completed: newCompleted } : item
+    );
+    const updatedMeeting = { ...meeting, actionItems: updatedActionItems };
+    
+    // 로컬 meeting state 업데이트
+    setMeeting(updatedMeeting);
+    console.log('[MeetingDetail] Local meeting state updated (toggle)');
+    
+    // 부모에게 전파
+    onUpdateMeeting(updatedMeeting);
+
+    // 백엔드 동기화
+    try {
+      const newStatus = newCompleted ? 'DONE' : 'TODO';
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/reports/${meeting.id}/action-items/${actionItemId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ status: newStatus }),
+      });
+    } catch (error) {
+      console.error('Failed to toggle action item:', error);
+    }
   };
 
-  const handleUpdateActionItem = (actionItemId: string, field: keyof ActionItem, value: string) => {
+  const handleUpdateActionItem = async (actionItemId: string, field: keyof ActionItem, value: string) => {
+    // 로컬 상태 즉시 업데이트 (UI 반응성)
     const updatedActionItems = meeting.actionItems.map(item =>
       item.id === actionItemId ? { ...item, [field]: value } : item
     );
+    const updatedMeeting = { ...meeting, actionItems: updatedActionItems };
+    
+    // 로컬 meeting state 업데이트
+    setMeeting(updatedMeeting);
+    console.log('[MeetingDetail] Local meeting state updated (field update)');
+    
+    // 부모에게 전파
+    onUpdateMeeting(updatedMeeting);
 
-    onUpdateMeeting({ ...meeting, actionItems: updatedActionItems });
+    // 백엔드 동기화
+    try {
+      const updates: any = {};
+      
+      if (field === 'assignee') {
+        updates.assignee_name = value;
+      } else if (field === 'dueDate') {
+        updates.due_dt = value;
+      } else if (field === 'text') {
+        updates.title = value;
+      }
+
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/reports/${meeting.id}/action-items/${actionItemId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(updates),
+      });
+    } catch (error) {
+      console.error('Failed to update action item:', error);
+    }
   };
 
   const calculateProgress = () => {
@@ -199,17 +301,9 @@ export function MeetingDetail({
   const handleDelete = async () => {
     if (confirm('정말로 이 회의록을 삭제하시겠습니까?')) {
       try {
-        const token = localStorage.getItem('access_token');
-        if (!token) {
-          alert('로그인이 필요합니다.');
-          return;
-        }
-
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/meetings/${meeting.id}`, {
           method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
+          credentials: 'include', // httpOnly Cookie 전송
         });
 
         if (response.ok) {
@@ -256,8 +350,8 @@ export function MeetingDetail({
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
           },
+          credentials: 'include', // httpOnly Cookie 전송
         }
       );
       
@@ -472,7 +566,7 @@ export function MeetingDetail({
           </TabsTrigger>
           <TabsTrigger value="analysis" className="gap-1 md:gap-2 text-sm md:text-base">
             <Brain className="w-4 h-4" />
-            <span className="hidden sm:inline">심층 분석</span>
+            <span className="hidden sm:inline">액션 및 분석</span>
             <span className="sm:hidden">분석</span>
           </TabsTrigger>
         </TabsList>
@@ -591,7 +685,7 @@ export function MeetingDetail({
                         className="gap-2"
                       >
                         <Settings className="w-4 h-4" />
-                        <span className="hidden sm:inline">설정</span>
+                        <span className="hidden sm:inline">수정</span>
                       </Button>
                       <CollapsibleTrigger asChild>
                         <Button variant="ghost" size="sm">
@@ -650,8 +744,13 @@ export function MeetingDetail({
                                   담당자
                                 </label>
                                 <Input
-                                  value={item.assignee}
-                                  onChange={(e) => handleUpdateActionItem(item.id, 'assignee', e.target.value)}
+                                  key={`assignee-${item.id}`}
+                                  defaultValue={item.assignee}
+                                  onBlur={(e) => {
+                                    if (e.target.value !== item.assignee) {
+                                      handleUpdateActionItem(item.id, 'assignee', e.target.value);
+                                    }
+                                  }}
                                   placeholder="담당자 이름"
                                   className="h-8 md:h-9 text-sm"
                                 />
@@ -663,7 +762,8 @@ export function MeetingDetail({
                                 </label>
                                 <Input
                                   type="date"
-                                  value={item.dueDate}
+                                  key={`duedate-${item.id}`}
+                                  defaultValue={item.dueDate}
                                   onChange={(e) => handleUpdateActionItem(item.id, 'dueDate', e.target.value)}
                                   className="h-8 md:h-9 text-sm"
                                 />
@@ -873,7 +973,15 @@ export function MeetingDetail({
                           {...(audioSrc && { src: audioSrc })}
                           controls
                           className="w-full"
-                          onError={(e) => console.error('[MeetingDetail] Audio load error:', e)}
+                          onError={(e) => {
+                            const target = e.target as HTMLAudioElement;
+                            console.error('[MeetingDetail] Audio load error:', {
+                              src: target.src,
+                              error: target.error,
+                              networkState: target.networkState,
+                              readyState: target.readyState
+                            });
+                          }}
                         />
                       </div>
                       <p className="text-xs text-gray-500">
@@ -895,7 +1003,16 @@ export function MeetingDetail({
         </TabsContent>
 
         <TabsContent value="analysis" className="mt-6">
-          <MeetingAnalysis meeting={meeting} onUpdateMeeting={onUpdateMeeting} />
+          <MeetingAnalysis 
+            meeting={meeting} 
+            onUpdateMeeting={(updatedMeeting) => {
+              // 로컬 상태 즉시 업데이트
+              setMeeting(updatedMeeting);
+              console.log('[MeetingDetail] Local meeting state updated');
+              // 부모에게 전파
+              onUpdateMeeting(updatedMeeting);
+            }} 
+          />
         </TabsContent>
       </Tabs>
       

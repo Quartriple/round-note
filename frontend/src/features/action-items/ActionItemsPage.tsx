@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, CardContent } from '@/shared/ui/card';
 import { Button } from '@/shared/ui/button';
 import { Badge } from '@/shared/ui/badge';
@@ -21,7 +21,16 @@ interface ActionItemsPageProps {
   onUpdateMeeting: (meeting: Meeting) => void;
 }
 
-export function ActionItemsPage({ meetings, onUpdateMeeting }: ActionItemsPageProps) {
+export function ActionItemsPage({ meetings: meetingsProp, onUpdateMeeting }: ActionItemsPageProps) {
+  // 로컬 상태로 meetings 관리하여 즉시 업데이트 반영
+  const [meetings, setMeetings] = useState(meetingsProp);
+  
+  // meetings prop이 변경되면 로컬 상태도 업데이트
+  React.useEffect(() => {
+    console.log('[ActionItemsPage] Meetings prop updated:', meetingsProp);
+    setMeetings(meetingsProp);
+  }, [meetingsProp]);
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'pending'>('all');
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | 'all'>('all');
@@ -60,24 +69,83 @@ export function ActionItemsPage({ meetings, onUpdateMeeting }: ActionItemsPagePr
     ? groupedItems
     : groupedItems.filter(g => g.id === selectedMeetingId);
 
-  const handleToggleActionItem = (meetingId: string, itemId: string) => {
+  const handleToggleActionItem = async (meetingId: string, itemId: string) => {
     const meeting = meetings.find(m => m.id === meetingId);
     if (!meeting) return;
 
+    const item = meeting.actionItems.find(ai => ai.id === itemId);
+    if (!item) return;
+
+    const newCompleted = !item.completed;
+
+    // 로컬 상태 즉시 업데이트
     const updatedActionItems = meeting.actionItems.map(ai =>
-      ai.id === itemId ? { ...ai, completed: !ai.completed } : ai
+      ai.id === itemId ? { ...ai, completed: newCompleted } : ai
     );
-    onUpdateMeeting({ ...meeting, actionItems: updatedActionItems });
+    const updatedMeeting = { ...meeting, actionItems: updatedActionItems };
+    
+    // 로컬 meetings 배열 업데이트
+    setMeetings(meetings.map(m => m.id === meetingId ? updatedMeeting : m));
+    console.log('[ActionItemsPage] Local meetings state updated');
+    
+    // 부모에게 전파
+    onUpdateMeeting(updatedMeeting);
+
+    // 백엔드 동기화
+    try {
+      const newStatus = newCompleted ? 'DONE' : 'TODO';
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/reports/${meetingId}/action-items/${itemId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ status: newStatus }),
+      });
+    } catch (error) {
+      console.error('Failed to toggle action item:', error);
+    }
   };
 
-  const handleUpdateActionItem = (meetingId: string, itemId: string, field: keyof ActionItem, value: string) => {
+  const handleUpdateActionItem = async (meetingId: string, itemId: string, field: keyof ActionItem, value: string) => {
     const meeting = meetings.find(m => m.id === meetingId);
     if (!meeting) return;
 
+    // 로컬 상태 즉시 업데이트
     const updatedActionItems = meeting.actionItems.map(ai =>
       ai.id === itemId ? { ...ai, [field]: value } : ai
     );
-    onUpdateMeeting({ ...meeting, actionItems: updatedActionItems });
+    const updatedMeeting = { ...meeting, actionItems: updatedActionItems };
+    
+    // 로컬 meetings 배열 업데이트
+    setMeetings(meetings.map(m => m.id === meetingId ? updatedMeeting : m));
+    console.log('[ActionItemsPage] Local meetings state updated (handleUpdateActionItem)');
+    
+    // 부모에게 전파
+    onUpdateMeeting(updatedMeeting);
+
+    // 백엔드 동기화
+    try {
+      const updates: any = {};
+      if (field === 'assignee') {
+        updates.assignee_name = value;
+      } else if (field === 'dueDate') {
+        updates.due_dt = value;
+      } else if (field === 'text') {
+        updates.title = value;
+      }
+
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/reports/${meetingId}/action-items/${itemId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(updates),
+      });
+    } catch (error) {
+      console.error('Failed to update action item:', error);
+    }
   };
 
   const isOverdue = (item: ActionItem) => {
@@ -198,15 +266,21 @@ export function ActionItemsPage({ meetings, onUpdateMeeting }: ActionItemsPagePr
                           size={32} 
                         />
                         <Input
-                          value={item.assignee}
-                          onChange={(e) => handleUpdateActionItem(group.id, item.id, 'assignee', e.target.value)}
+                          key={`assignee-${group.id}-${item.id}`}
+                          defaultValue={item.assignee}
+                          onBlur={(e) => {
+                            if (e.target.value !== item.assignee) {
+                              handleUpdateActionItem(group.id, item.id, 'assignee', e.target.value);
+                            }
+                          }}
                           placeholder="담당자 이름"
                           className="h-9 flex-1"
                         />
                       </div>
                       <Input
+                        key={`duedate-${group.id}-${item.id}`}
                         type="date"
-                        value={item.dueDate}
+                        defaultValue={item.dueDate}
                         onChange={(e) => handleUpdateActionItem(group.id, item.id, 'dueDate', e.target.value)}
                         className="h-9"
                       />

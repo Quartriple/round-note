@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
+from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.schemas import user as user_schema
@@ -22,9 +22,9 @@ oauth.register(
     client_kwargs={'scope': 'openid email profile'}
 )
 
-@router.post("/register", response_model=user_schema.Token)
+@router.post("/register")
 def register_user(user: user_schema.UserCreate, db: Session = Depends(get_db)):
-    """새로운 사용자를 등록하고 JWT 토큰을 발급합니다."""
+    """새로운 사용자를 등록합니다. 회원가입 후 로그인이 필요합니다."""
     print(f"[DEBUG] 회원가입 시도 - Email: {user.email}, Name: {user.name}, Password length: {len(user.password)}")
     
     # 이메일 중복 체크
@@ -37,19 +37,20 @@ def register_user(user: user_schema.UserCreate, db: Session = Depends(get_db)):
     print(f"[DEBUG] 사용자 생성 중...")
     db_user = user_crud.create_user(db, user)
     print(f"[DEBUG] 사용자 생성 완료 - USER_ID: {db_user.USER_ID}, Email: {db_user.EMAIL}")
-
-    # JWT 토큰 생성
-    token = security.create_access_token({"sub": db_user.USER_ID, "email": db_user.EMAIL})
-    print(f"[DEBUG] JWT 토큰 발급 완료")
+    
     return {
-        "access_token": token,
-        "token_type": "bearer"
+        "message": "회원가입 성공. 로그인해주세요.",
+        "user": {
+            "id": db_user.USER_ID,
+            "email": db_user.EMAIL,
+            "name": db_user.NAME
+        }
     }
 
-@router.post("/login", response_model=user_schema.Token)
-def login_for_access_token(form_data: user_schema.UserLogin, db: Session = Depends(get_db)):
+@router.post("/login")
+def login_for_access_token(form_data: user_schema.UserLogin, response: Response, db: Session = Depends(get_db)):
     """
-    사용자 인증 후 액세스 토큰을 발급합니다.
+    사용자 인증 후 액세스 토큰을 httpOnly Cookie에 설정합니다.
     """
     print(f"[DEBUG] 로그인 시도 - Email: {form_data.email}, Password length: {len(form_data.password)}")
     
@@ -72,9 +73,25 @@ def login_for_access_token(form_data: user_schema.UserLogin, db: Session = Depen
         )
     print(f"[DEBUG] 인증 성공")
     token = security.create_access_token({"sub": user.USER_ID, "email": user.EMAIL})
+    
+    # httpOnly Cookie에 토큰 설정
+    is_production = os.getenv("ENVIRONMENT", "development") == "production"
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=is_production,  # 프로덕션에서만 HTTPS 강제, 개발환경에선 HTTP 허용
+        samesite="lax",  # CSRF 방어
+        max_age=1800  # 30분 (초 단위)
+    )
+    
     return {
-        "access_token": token,
-        "token_type": "bearer"
+        "message": "로그인 성공",
+        "user": {
+            "id": user.USER_ID,
+            "email": user.EMAIL,
+            "name": user.NAME
+        }
     }
 
 @router.get("/google/login")
@@ -133,7 +150,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         # JWT 토큰 생성
         access_token = security.create_access_token({"sub": db_user.USER_ID, "email": db_user.EMAIL})
         
-        # 프론트엔드로 리다이렉트 (토큰을 쿼리 파라미터로 전달)
+        # 프론트엔드로 리다이렉트 (토큰을 httpOnly Cookie로 설정)
         # 요청된 호스트를 기준으로 환경 감지
         host = request.headers.get('host', '')
         is_local = 'localhost' in host or '127.0.0.1' in host
@@ -144,7 +161,18 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
             # 배포 환경: CORS_ORIGIN 환경 변수 사용
             frontend_url = os.getenv('CORS_ORIGIN', 'https://round-note-web.onrender.com')
         
-        return RedirectResponse(url=f"{frontend_url}/login?token={access_token}")
+        # RedirectResponse에 쿠키 설정
+        is_production = os.getenv("ENVIRONMENT", "development") == "production"
+        response = RedirectResponse(url=f"{frontend_url}/main")
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            secure=is_production,  # 프로덕션에서만 HTTPS 강제
+            samesite="lax",
+            max_age=1800  # 30분 (초 단위)
+        )
+        return response
         
     except Exception as e:
         print(f"[DEBUG] Google OAuth 오류: {str(e)}")
@@ -160,15 +188,18 @@ def get_current_user_info(current_user: models.User = Depends(get_current_user))
     return current_user
 
 @router.post("/logout")
-def logout(current_user: models.User = Depends(get_current_user)):
+def logout(response: Response, current_user: models.User = Depends(get_current_user)):
     """
-    사용자 로그아웃 처리
+    사용자 로그아웃 처리 - httpOnly Cookie 삭제
     
-    JWT는 stateless하므로 서버에서 토큰을 무효화할 수 없습니다.
-    클라이언트에서 토큰을 삭제하는 것이 주된 로그아웃 방식이며,
-    이 엔드포인트는 로그아웃 기록이나 추가 작업이 필요한 경우 사용됩니다.
+    JWT는 stateless하므로 서버에서 토큰을 무효화할 수 없지만,
+    쿠키를 삭제하여 클라이언트에서 토큰에 접근할 수 없도록 합니다.
     """
     print(f"[DEBUG] 로그아웃 - USER_ID: {current_user.USER_ID}, Email: {current_user.EMAIL}")
+    
+    # httpOnly Cookie 삭제
+    response.delete_cookie(key="access_token", httponly=True, samesite="lax")
+    
     return {"message": "로그아웃되었습니다."}
 
 @router.get("/users/debug")

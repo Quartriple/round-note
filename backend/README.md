@@ -665,13 +665,18 @@ logger.error("LLM 요약 오류: %s", str(e))
 - [x] **추가 인증 기능**
   - [x] GET /auth/me (JWT 토큰 기반 현재 사용자 정보)
   - [x] POST /auth/logout (로그아웃 처리)
-  - [ ] 보안 개선 (localStorage → httpOnly Cookie)
+  - [x] 보안 개선 (localStorage → httpOnly Cookie)
 
-- [ ] **회의 저장 통합**
-  - [ ] 회의 종료 시 전사 내용(CONTENT), AI 분석(AI_SUMMARY) DB 저장
-  - [ ] 액션 아이템 자동 추출 및 ACTION_ITEM 테이블 저장
-  - [ ] Summary 테이블 연동 (회의별 요약 저장)
-  - [ ] 프론트엔드 → 백엔드 회의 저장 시 전체 데이터 전달
+- [X] **회의 저장 통합**
+  - [X] 회의 종료 시 전사 내용(CONTENT), AI 분석(AI_SUMMARY) DB 저장
+  - [X] 액션 아이템 자동 추출 및 ACTION_ITEM 테이블 저장
+  - [X] Summary 테이블 연동 (회의별 요약 저장)
+  - [X] 프론트엔드 → 백엔드 회의 저장 시 전체 데이터 전달
+
+
+- [X] **Jira 연동**
+  - [X] `core/integrations/jira_service.py` - 액션 아이템을 Jira 이슈로 생성
+
 
 **Phase 1C - 버그 수정 🐛**
 
@@ -683,7 +688,7 @@ logger.error("LLM 요약 오류: %s", str(e))
 
 ### 2️⃣ 권현재 (팀장) - 병렬 진행 (우선순위순)
 
-**Phase 2A (1-2일) - 즉시 병렬 (김기찬 기다리지 말 것)**
+**Phase 2A (1-2일)**
 
 - [x] **Meeting/Summary/ActionItem CRUD 완성**
   - [x] `crud/meeting.py` - create_meeting, get_meeting, list_meetings, update_meeting, delete_meeting
@@ -749,8 +754,7 @@ logger.error("LLM 요약 오류: %s", str(e))
 
 **Phase 3D (1-2일) - Phase 3A 완료 후**
 
-- [] **Jira/Notion 연동**
-  - [] `core/integrations/jira_service.py` - 액션 아이템을 Jira 이슈로 생성
+- [] **Notion 연동**
   - [] `core/integrations/notion_service.py` - 보고서를 Notion 페이지로 생성
   - [ ] 통합 테스트
 
