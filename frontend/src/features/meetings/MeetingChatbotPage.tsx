@@ -81,33 +81,22 @@ export function MeetingChatbotPage({ meetings }: MeetingChatbotPageProps) {
         });
     };
 
-    // 선택된 회의들로 챗봇 시작
+    // 선택된 회의들로 챗봇 시작 (이전 대화는 유지하고 누적)
     const handleConfirmSelection = () => {
         if (selectedMeetings.length === 0) return;
 
-        // 새로운 회의 세션 시작 메시지 추가
-        const newMeetings = selectedMeetings.filter(
-            sm => !activeChats.find(ac => ac.id === sm.id)
-        );
+        // 새로운 회의 세션 시작 메시지 생성
+        const sessionMessages: Message[] = selectedMeetings.map((meeting, index) => ({
+            id: `session-${Date.now()}-${index}`,
+            role: 'system' as const,
+            content: `안녕하세요! "${meeting.title}" 회의록에 대해 질문해주세요. 회의 내용을 기반으로 AI가 답변해드립니다.`,
+            timestamp: new Date(),
+            meetingContext: meeting.id,
+        }));
 
-        if (newMeetings.length > 0) {
-            const sessionMessages: Message[] = newMeetings.map((meeting, index) => ({
-                id: `session-${Date.now()}-${index}`,
-                role: 'system' as const,
-                content: `안녕하세요! "${meeting.title}" 회의록에 대해 질문해주세요. 회의 내용을 기반으로 AI가 답변해드립니다.`,
-                timestamp: new Date(),
-                meetingContext: meeting.id,
-            }));
-
-            setMessages(prev => [...prev, ...sessionMessages]);
-            setActiveChats(prev => {
-                const combined = [...prev, ...newMeetings];
-                // 중복 제거
-                return combined.filter((meeting, index, self) =>
-                    index === self.findIndex(m => m.id === meeting.id)
-                );
-            });
-        }
+        // 이전 대화 내용은 유지하고 새로운 세션 메시지 추가
+        setMessages(prev => [...prev, ...sessionMessages]);
+        setActiveChats([...selectedMeetings]);
     };
 
     // 로컬 응답 생성 (간단한 예시)
@@ -181,7 +170,7 @@ export function MeetingChatbotPage({ meetings }: MeetingChatbotPageProps) {
     };
 
     return (
-        <div className="h-[calc(100vh-2rem)] flex flex-col gap-4 p-4">
+        <div className="flex flex-col gap-4 p-4">
             {/* 검색창 */}
             <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
@@ -265,8 +254,8 @@ export function MeetingChatbotPage({ meetings }: MeetingChatbotPageProps) {
                 </div>
             </div>
 
-            {/* 챗봇 영역 */}
-            <div className="flex-1 min-h-0">
+            {/* 챗봇 영역 - 높이 제한 및 내부 스크롤 */}
+            <div className="h-[700px]">
                 <Card className="h-full flex flex-col">
                     <CardHeader className="border-b">
                         <CardTitle className="flex items-center gap-2">
@@ -279,9 +268,9 @@ export function MeetingChatbotPage({ meetings }: MeetingChatbotPageProps) {
                             )}
                         </CardTitle>
                     </CardHeader>
-                    <CardContent className="flex-1 flex flex-col p-0">
+                    <CardContent className="flex-1 flex flex-col p-0 min-h-0">
                         {/* 메시지 영역 */}
-                        <div className="flex-1 p-4 overflow-y-auto">
+                        <div className="flex-1 p-4 overflow-y-auto min-h-0">
                             {activeChats.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center h-full text-center">
                                     <div className="text-muted-foreground space-y-2">
