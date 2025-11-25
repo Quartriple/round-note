@@ -76,12 +76,13 @@ def login_for_access_token(form_data: user_schema.UserLogin, response: Response,
     
     # httpOnly Cookie에 토큰 설정
     is_production = os.getenv("ENVIRONMENT", "development") == "production"
+    samesite_value = "none" if is_production else "lax"
     response.set_cookie(
         key="access_token",
         value=token,
         httponly=True,
         secure=is_production,  # 프로덕션에서만 HTTPS 강제, 개발환경에선 HTTP 허용
-        samesite="lax",  # CSRF 방어
+        samesite=samesite_value,  # 프로덕션에서는 "none"으로 크로스 도메인 허용
         max_age=1800  # 30분 (초 단위)
     )
     
@@ -163,15 +164,21 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         
         # RedirectResponse에 쿠키 설정
         is_production = os.getenv("ENVIRONMENT", "development") == "production"
+        
+        # 배포 환경에서는 쿠키가 크로스 도메인으로 전송되어야 하므로 samesite="none", secure=True 필요
+        samesite_value = "none" if is_production else "lax"
+        
         response = RedirectResponse(url=f"{frontend_url}/main")
         response.set_cookie(
             key="access_token",
             value=access_token,
             httponly=True,
             secure=is_production,  # 프로덕션에서만 HTTPS 강제
-            samesite="lax",
+            samesite=samesite_value,  # 프로덕션에서는 "none"으로 크로스 도메인 허용
             max_age=1800  # 30분 (초 단위)
         )
+        
+        print(f"[DEBUG] 쿠키 설정 완료 - samesite={samesite_value}, secure={is_production}")
         return response
         
     except Exception as e:
@@ -197,8 +204,15 @@ def logout(response: Response, current_user: models.User = Depends(get_current_u
     """
     print(f"[DEBUG] 로그아웃 - USER_ID: {current_user.USER_ID}, Email: {current_user.EMAIL}")
     
-    # httpOnly Cookie 삭제
-    response.delete_cookie(key="access_token", httponly=True, samesite="lax")
+    # httpOnly Cookie 삭제 (환경에 맞게 samesite 설정)
+    is_production = os.getenv("ENVIRONMENT", "development") == "production"
+    samesite_value = "none" if is_production else "lax"
+    response.delete_cookie(
+        key="access_token",
+        httponly=True,
+        secure=is_production,
+        samesite=samesite_value
+    )
     
     return {"message": "로그아웃되었습니다."}
 
