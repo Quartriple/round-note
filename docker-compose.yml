@@ -29,7 +29,7 @@ services:
       context: .
       dockerfile: ./backend/Dockerfile
     env_file:
-      - ./backend/.env.docker
+      - ./backend/.env
     environment:
       # Python이 /app 디렉토리에서도 모듈을 찾도록 경로 추가
       - PYTHONPATH=/app
