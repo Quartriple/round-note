@@ -99,32 +99,53 @@ export function MeetingChatbotPage({ meetings }: MeetingChatbotPageProps) {
         setActiveChats([...selectedMeetings]);
     };
 
-    // 로컬 응답 생성 (간단한 예시)
+    // 백엔드 API를 통한 실제 AI 응답 생성
     const generateResponse = async (question: string): Promise<string> => {
-        // 활성화된 모든 회의의 정보를 종합하여 응답
-        const meetingTitles = activeChats.map(m => m.title).join(', ');
-        const totalActions = activeChats.reduce((acc, m) => acc + m.actionItems.length, 0);
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-        const q = question.toLowerCase();
+        // 활성화된 회의들의 ID 추출
+        const meetingIds = activeChats.map(m => m.id);
 
-        if (q.includes('요약')) {
-            const summaries = activeChats.map((m, i) =>
-                `\n${i + 1}. ${m.title}:\n${m.summary}`
-            ).join('\n');
-            return `선택된 ${activeChats.length}개 회의의 요약:${summaries}`;
+        if (meetingIds.length === 0) {
+            return '먼저 회의를 선택해주세요.';
         }
 
-        if (q.includes('액션')) {
-            const actions = activeChats.map((m, i) => {
-                const items = m.actionItems.map((a, j) =>
-                    `  ${j + 1}. ${a.text} (담당: ${a.assignee})`
-                ).join('\n');
-                return `\n${i + 1}. ${m.title}:\n${items}`;
-            }).join('\n');
-            return `선택된 회의들의 액션 아이템 (총 ${totalActions}개):${actions}`;
-        }
+        try {
+            // 백엔드 API 호출 (쿠키 기반 인증)
+            const response = await fetch(`${API_URL}/api/v1/chatbot/ask-fulltext`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'include', // 쿠키 자동 포함
+                body: JSON.stringify({
+                    meeting_ids: meetingIds,
+                    question: question,
+                }),
+            });
 
-        return `현재 ${activeChats.length}개의 회의("${meetingTitles}")에 대해 질문하실 수 있습니다. "요약해줘", "액션 아이템 알려줘" 등을 시도해보세요.`;
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+                const errorMessage = typeof errorData.detail === 'string'
+                    ? errorData.detail
+                    : errorData.detail?.message || JSON.stringify(errorData.detail);
+                throw new Error(errorMessage);
+            }
+
+            const data = await response.json();
+
+            // 응답에서 답변 추출
+            return data.answer || '응답을 받지 못했습니다.';
+
+        } catch (error: any) {
+            console.error('챗봇 API 오류:', error);
+
+            // 사용자 친화적인 에러 메시지
+            if (error.message.includes('Failed to fetch')) {
+                return '⚠️ 서버에 연결할 수 없습니다. 백엔드 서버가 실행 중인지 확인해주세요.';
+            }
+            return `⚠️ 오류가 발생했습니다: ${error.message}`;
+        }
     };
 
     const handleSend = async () => {
@@ -143,8 +164,7 @@ export function MeetingChatbotPage({ meetings }: MeetingChatbotPageProps) {
         setIsTyping(true);
 
         try {
-            // 여기서 실제 AI API 호출 (여러 회의 컨텍스트 전달)
-            await new Promise(resolve => setTimeout(resolve, 500));
+            // 실제 AI API 호출 (여러 회의 컨텍스트 전달)
             const response = await generateResponse(currentInput);
 
             const assistantMessage: Message = {
