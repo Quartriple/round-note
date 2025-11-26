@@ -26,20 +26,15 @@ from backend.dependencies import get_current_user
 
 router = APIRouter()
 
-'''
-def get_current_user():
-    # 여기서는 그냥 "구현 안 됨" 예외를 던지거나, pass 해도 됨.
-    # 테스트에서는 이 함수가 ep.get_current_user = override_get_current_user 로 덮어쓰기된다.
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="get_current_user is not implemented",
-    )
-'''
+# ==================== 기존 벡터 임베딩 기반 챗봇 (비활성화) ====================
+# 벡터 임베딩 기반 RAG 챗봇은 현재 비활성화되었습니다.
+# 원문 기반 챗봇(/ask-fulltext)을 사용하세요.
 
+'''
 @router.post(
     "/ask",
     response_model=ChatbotAnswerResponse,
-    summary="회의 기반 RAG 챗봇 질의",
+    summary="[비활성화] 회의 기반 RAG 챗봇 질의",
 )
 def ask_chatbot(
     payload: ChatbotQuestionRequest,
@@ -47,12 +42,15 @@ def ask_chatbot(
     current_user: models.User = Depends(get_current_user),
 ):
     """
-    RAG 챗봇 질의 API
+    [비활성화] RAG 챗봇 질의 API
     - meeting_id가 있으면: 특정 회의를 컨텍스트로 사용
     - meeting_id가 없으면: 전체 회의에서 검색
+
+    현재 이 엔드포인트는 비활성화되었습니다.
+    대신 /ask-fulltext 엔드포인트를 사용하세요.
     """
     meeting = None
-    
+
     # 1) meeting_id가 제공된 경우: 회의 존재 여부 검사
     if payload.meeting_id:
         meeting = meeting_crud.get_meeting(db, meeting_id=payload.meeting_id)
@@ -73,12 +71,14 @@ def ask_chatbot(
         user=current_user,
         payload=payload,
     )
+'''
 
 
+'''
 @router.get(
     "/{meeting_id}/history",
     response_model=ChatHistoryResponse,
-    summary="특정 회의의 챗봇 Q&A 히스토리 조회",
+    summary="[비활성화] 특정 회의의 챗봇 Q&A 히스토리 조회",
 )
 def get_chat_history(
     meeting_id: str,
@@ -86,7 +86,7 @@ def get_chat_history(
     current_user: models.User = Depends(get_current_user),
 ):
     """
-    특정 회의에 대해 지금까지 진행된 Q&A 히스토리 조회
+    [비활성화] 특정 회의에 대해 지금까지 진행된 Q&A 히스토리 조회
     """
     meeting = meeting_crud.get_meeting(db, meeting_id=meeting_id)
     if not meeting:
@@ -121,13 +121,13 @@ def get_chat_history(
 @router.get(
     "/health",
     response_model=ChatbotHealthCheck,
-    summary="챗봇 / RAG / LLM 헬스 체크",
+    summary="[비활성화] 챗봇 / RAG / LLM 헬스 체크",
 )
 def chatbot_health(
     db: Session = Depends(get_db),
 ):
     """
-    간단한 헬스 체크용 엔드포인트.
+    [비활성화] 간단한 헬스 체크용 엔드포인트.
     실제로는 vectorstore, OpenAI 호출 등을 테스트하도록 확장할 수 있습니다.
     """
     # TODO: VectorStore, OpenAI ping 등을 실제로 검사하도록 확장 가능
@@ -137,6 +137,7 @@ def chatbot_health(
         vectorstore_connected=True,
         llm_available=True,
     )
+'''
 
 
 # ==================== 새로운 원문 기반 챗봇 엔드포인트 ====================
