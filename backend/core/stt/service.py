@@ -1,7 +1,11 @@
-from typing import Optional
+```python
+from typing import Optional, Dict, Any
 import os
 from dotenv import load_dotenv
 from backend.core.utils.logger import setup_logger
+from backend.core.utils.retry_config import api_retry_stt
+from backend.core.utils.error_responses import ErrorMessages, ErrorResponse
+from tenacity import RetryError
 
 load_dotenv()
 
@@ -41,11 +45,14 @@ class STTService:
         
         # TODO: (팀원 B) ElevenLabs 클라이언트 초기화 (배치 STT용)
     
+    @api_retry_stt
     def get_realtime_stt_url(self) -> tuple[str, dict]:
         """
         FastAPI가 Deepgram WebSocket에 연결하는 데 필요한 URL과 헤더를 반환합니다.
+        
+        자동 재시도: 네트워크 오류 시 최대 3회 재시도
         """
-        logger.debug("Generating Deepgram WebSocket URL",  extra={"service": "stt"})
+        logger.debug("Generating Deepgram WebSocket URL", extra={"service": "stt"})
             
         full_url = self.DEEPGRAM_BASE_URL + self.DEEPGRAM_PARAMS
         headers = {"Authorization": f"Token {self.DEEPGRAM_API_KEY}"}
@@ -56,3 +63,42 @@ class STTService:
         })
         
         return full_url, headers
+    
+    def get_realtime_stt_url_with_fallback(self) -> Dict[str, Any]:
+        """
+        Fallback wrapper for get_realtime_stt_url with user-friendly error handling
+        
+        Returns:
+            Success: {"success": True, "url": str, "headers": dict}
+            Failure: {"success": False, "message": str}
+        """
+        try:
+            url, headers = self.get_realtime_stt_url()
+            return {
+                "success": True,
+                "url": url,
+                "headers": headers
+            }
+        except RetryError as e:
+            # All retries exhausted
+            logger.error("All STT URL generation retries exhausted", extra={
+                "service": "stt",
+                "error": str(e)
+            }, exc_info=True)
+            return ErrorResponse.create(
+                success=False,
+                message=ErrorMessages.STT_SERVICE_UNAVAILABLE,
+                error_code="STT_001"
+            )
+        except Exception as e:
+            # Unexpected error
+            logger.error("Unexpected STT error", extra={
+                "service": "stt",
+                "error": str(e)
+            }, exc_info=True)
+            return ErrorResponse.create(
+                success=False,
+                message=ErrorMessages.STT_SERVICE_UNAVAILABLE,
+                error_code="STT_999"
+            )
+```
