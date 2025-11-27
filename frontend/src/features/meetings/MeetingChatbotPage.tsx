@@ -99,25 +99,18 @@ export function MeetingChatbotPage({ meetings }: MeetingChatbotPageProps) {
         setActiveChats([...selectedMeetings]);
     };
 
-    // 백엔드 API를 통한 실제 AI 응답 생성
+    // API를 통한 응답 생성
     const generateResponse = async (question: string): Promise<string> => {
-        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
-        // 활성화된 회의들의 ID 추출
-        const meetingIds = activeChats.map(m => m.id);
-
-        if (meetingIds.length === 0) {
-            return '먼저 회의를 선택해주세요.';
-        }
-
         try {
-            // 백엔드 API 호출 (쿠키 기반 인증)
-            const response = await fetch(`${API_URL}/api/v1/chatbot/ask-fulltext`, {
+            // activeChats에서 meeting ID 추출
+            const meetingIds = activeChats.map(m => m.id);
+
+            const response = await fetch('/api/v1/chatbot/ask-fulltext', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                credentials: 'include', // 쿠키 자동 포함
+                credentials: 'include', // 쿠키 포함
                 body: JSON.stringify({
                     meeting_ids: meetingIds,
                     question: question,
@@ -125,26 +118,15 @@ export function MeetingChatbotPage({ meetings }: MeetingChatbotPageProps) {
             });
 
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-                const errorMessage = typeof errorData.detail === 'string'
-                    ? errorData.detail
-                    : errorData.detail?.message || JSON.stringify(errorData.detail);
-                throw new Error(errorMessage);
+                const errorData = await response.json();
+                throw new Error(errorData.detail || '챗봇 응답 생성 중 오류가 발생했습니다.');
             }
 
             const data = await response.json();
-
-            // 응답에서 답변 추출
-            return data.answer || '응답을 받지 못했습니다.';
-
-        } catch (error: any) {
-            console.error('챗봇 API 오류:', error);
-
-            // 사용자 친화적인 에러 메시지
-            if (error.message.includes('Failed to fetch')) {
-                return '⚠️ 서버에 연결할 수 없습니다. 백엔드 서버가 실행 중인지 확인해주세요.';
-            }
-            return `⚠️ 오류가 발생했습니다: ${error.message}`;
+            return data.answer;
+        } catch (error) {
+            console.error('챗봇 API 호출 오류:', error);
+            throw error;
         }
     };
 
@@ -177,6 +159,18 @@ export function MeetingChatbotPage({ meetings }: MeetingChatbotPageProps) {
             setMessages(prev => [...prev, assistantMessage]);
         } catch (error) {
             console.error('Chat error:', error);
+
+            // 에러 메시지 표시
+            const errorMessage: Message = {
+                id: (Date.now() + 1).toString(),
+                role: 'assistant',
+                content: error instanceof Error
+                    ? `죄송합니다. 오류가 발생했습니다: ${error.message}`
+                    : '죄송합니다. 알 수 없는 오류가 발생했습니다.',
+                timestamp: new Date(),
+            };
+
+            setMessages(prev => [...prev, errorMessage]);
         } finally {
             setIsTyping(false);
         }

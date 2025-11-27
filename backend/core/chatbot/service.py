@@ -28,7 +28,7 @@ class ChatbotService:
     def __init__(
         self,
         client: Optional[OpenAI] = None,
-        model: str = "gpt-4.1-mini",
+        model: str = "gpt-4.1-nano",
     ):
         """
         Args:
@@ -255,8 +255,7 @@ class ChatbotService:
 
             # 컨텍스트 구성
             context_part = f"""
-=== 회의 {meeting.MEETING_ID} ===
-제목: {title}
+=== {title} ===
 목적: {purpose}
 요약: {summary}
 
@@ -282,7 +281,7 @@ class ChatbotService:
             "당신은 회의 내용을 분석하고 질문에 답변하는 한국어 AI 비서입니다.\n"
             "제공된 회의 전사 원문에 근거해서만 답변하고, "
             "원문에 없는 내용은 '제공된 회의에서 언급되지 않았습니다'라고 명확히 말하세요.\n"
-            "여러 회의가 제공된 경우, 각 회의를 구분하여 답변하거나 종합하여 설명하세요.\n"
+            "여러 회의가 제공된 경우, 각 회의를 회의 제목으로 구분하여 답변하거나 종합하여 설명하세요.\n"
             "답변은 핵심 위주로 간결하게 작성하세요."
         )
 

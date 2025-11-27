@@ -871,8 +871,8 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
               <div>
                 <h4 className="font-semibold text-green-800 mb-1">액션 아이템</h4>
                 <ul className="list-disc list-inside text-green-700 text-sm">
-                  {aiAnalysis.actionItems.map((item: string, i: number) => (
-                    <li key={i}>{item}</li>
+                  {aiAnalysis.actionItems.map((item: any, i: number) => (
+                    <li key={i}>{typeof item === 'string' ? item : (item.task || item.title || item.text || '')}</li>
                   ))}
                 </ul>
               </div>

@@ -1,10 +1,13 @@
 import type { NextConfig } from "next";
-import path from "path";
 
 const nextConfig: NextConfig = {
-  turbopack: {
-    // frontend 디렉터리가 프로젝트 루트라면 __dirname 그대로 사용
-    root: __dirname,
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: 'http://localhost:8000/api/:path*', // Proxy to Backend
+      },
+    ];
   },
 };
 
