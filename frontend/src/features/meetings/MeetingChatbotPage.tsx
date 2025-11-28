@@ -4,6 +4,9 @@ import { Input } from '@/shared/ui/input';
 import { Button } from '@/shared/ui/button';
 import { Search, Calendar, Clock, Check, Send, Bot, User as UserIcon, CheckSquare, Square } from 'lucide-react';
 import type { Meeting } from '@/features/dashboard/Dashboard';
+import { fetchWithAuth, handleAuthResponse } from '@/utils/auth';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface Message {
     id: string;
@@ -105,22 +108,17 @@ export function MeetingChatbotPage({ meetings }: MeetingChatbotPageProps) {
             // activeChats에서 meeting ID 추출
             const meetingIds = activeChats.map(m => m.id);
 
-            const response = await fetch('/api/v1/chatbot/ask-fulltext', {
+            const response = await fetchWithAuth(`${API_URL}/api/v1/chatbot/ask-fulltext`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                credentials: 'include', // 쿠키 포함
                 body: JSON.stringify({
                     meeting_ids: meetingIds,
                     question: question,
                 }),
             });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || '챗봇 응답 생성 중 오류가 발생했습니다.');
-            }
+            await handleAuthResponse(response);
 
             const data = await response.json();
             return data.answer;

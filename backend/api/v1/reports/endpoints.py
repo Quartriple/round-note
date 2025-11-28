@@ -15,6 +15,47 @@ router = APIRouter(prefix="/reports", tags=["Reports"])
 
 
 # ============================================
+# 0. 실시간 요약 미리보기 (DB 저장 없음)
+# ============================================
+class PreviewSummaryRequest(BaseModel):
+    """실시간 요약 요청 (DB 저장 없이 content만 분석)"""
+    content: str
+
+@router.post("/preview-summary")
+async def preview_summary(
+    payload: PreviewSummaryRequest,
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    실시간 요약 생성 (DB 저장 없음)
+    
+    - 녹음 중 임시 content를 받아서 LLM으로 요약만 생성
+    - DB에 저장하지 않고 응답만 반환
+    - 액션 아이템 생성하지 않음 (요약만)
+    """
+    if not payload.content or not payload.content.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Content is required"
+        )
+    
+    try:
+        llm_service = LLMService()
+        # 간단한 요약 생성 (액션 아이템 제외)
+        summary_text = await llm_service.get_simple_summary(payload.content)
+        
+        return {
+            "summary": summary_text,
+            "cached": False
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate preview summary: {str(e)}"
+        )
+
+
+# ============================================
 # 1. 회의 요약 조회
 # ============================================
 @router.get("/{meeting_id}/summary", response_model=SummaryOut)

@@ -31,7 +31,24 @@ import {
   StopCircle,
   User
 } from 'lucide-react';
-import { projectId, publicAnonKey } from '@/utils/supabase/info';
+// Supabase support is optional and disabled by default.
+const ENABLE_SUPABASE = String(process.env.NEXT_PUBLIC_ENABLE_SUPABASE || 'false').toLowerCase() === 'true';
+let SUPABASE_FUNCTION_URL: string | undefined;
+let publicAnonKey: string | undefined;
+let projectId: string | undefined;
+if (ENABLE_SUPABASE) {
+  // Lazy-import only when enabled to avoid bundling unused code
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const supaInfo = require('@/utils/supabase/info');
+    projectId = supaInfo.projectId;
+    publicAnonKey = supaInfo.publicAnonKey;
+    SUPABASE_FUNCTION_URL = process.env.NEXT_PUBLIC_SUPABASE_FUNCTION_URL || `https://${projectId}.supabase.co/functions/v1/make-server-3ecf4837/analyze-meeting`;
+  } catch (e) {
+    // If info module is absent, keep Supabase disabled effectively
+    console.warn('Supabase info not found; Supabase features will remain disabled.');
+  }
+}
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs';
 import {
   Select,
@@ -41,7 +58,12 @@ import {
   SelectValue,
 } from '@/shared/ui/select';
 import { toast } from 'sonner';
+import { createMeeting, endMeeting } from '@/features/meetings/meetingsService';
+import { regenerateSummary } from '@/features/meetings/reportsService';
+import { fetchWithAuth } from '@/utils/auth';
 import type { Meeting } from "@/features/dashboard/Dashboard";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface MeetingContentInputProps {
   meetingInfo: {
@@ -74,6 +96,7 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
 
   const [content, setContent] = useState('');
   const [editableTitle, setEditableTitle] = useState(meetingInfo.title || '');
+  const [currentMeetingId, setCurrentMeetingId] = useState<string | null>(null);
   const [meetingDate, setMeetingDate] = useState(meetingInfo.date || new Date().toISOString().split('T')[0]);
   const [speechSupported, setSpeechSupported] = useState(true);
   const [micPermissionDenied, setMicPermissionDenied] = useState(false);
@@ -207,33 +230,26 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
     setIsGeneratingSummary(true);
 
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3ecf4837/analyze-meeting`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
-          body: JSON.stringify({
-            content,
-            meetingTitle: editableTitle,
-            summaryOnly: true, // 요약만 요청
-          }),
-        }
-      );
-      if (response.ok) {
-        const analysis = await response.json();
-        if (analysis.summary) {
-          setRealtimeSummary(analysis.summary);
-
-          // ✅ 내부 요약 div만 자동 스크롤
-          if (summaryRef.current) {
-            summaryRef.current.scrollTop = summaryRef.current.scrollHeight;
-          }
+      // DB 저장 없이 content만 전달하여 실시간 요약 생성
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20000);
+      const response = await fetchWithAuth(`${API_URL}/api/v1/reports/preview-summary`, {
+        method: 'POST',
+        body: JSON.stringify({ content }),
+        cache: 'no-store',
+        signal: controller.signal as AbortSignal,
+      });
+      clearTimeout(timeout);
+      
+      const result = await response.json();
+      if (result?.summary) {
+        setRealtimeSummary(result.summary);
+        if (summaryRef.current) {
+          summaryRef.current.scrollTop = summaryRef.current.scrollHeight;
         }
       }
-    } catch (error) {
+    } catch (error: any) {
+      // 실시간 요약 실패는 조용히 처리 (사용자에게 방해되지 않도록)
       console.error('Realtime summary error:', error);
     } finally {
       setIsGeneratingSummary(false);
@@ -315,6 +331,16 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
       await handleSubmit();
     } else {
       try {
+        // 1) 회의 미리 생성 (is_realtime 플래그)
+        try {
+          const created = await createMeeting({ title: editableTitle || generateDefaultTitle(meetings), purpose: meetingInfo.purpose, is_realtime: true });
+          setCurrentMeetingId(created.meeting_id);
+        } catch (e) {
+          console.error('Failed to create meeting before recording:', e);
+          toast.error('회의 생성에 실패했습니다. 네트워크 상태를 확인해주세요.');
+          return;
+        }
+        // 2) 녹음 시작
         await startRecording();
         startAudioRecording();
         setRecordingTime(0);
@@ -334,39 +360,39 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
       return;
     }
 
+    if (!currentMeetingId) {
+      toast.error('회의를 먼저 시작해주세요.');
+      return;
+    }
+
     setIsAnalyzing(true);
     setAnalysisError('');
 
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-3ecf4837/analyze-meeting`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
-          body: JSON.stringify({
-            content,
-            meetingTitle: editableTitle,
-          }),
-        }
-      );
+      // 백엔드에 회의 내용 업데이트
+      await fetchWithAuth(`${API_URL}/api/v1/meetings/${currentMeetingId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ content }),
+      });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'AI 분석에 실패했습니다.');
-      }
+      // regenerate를 호출하여 요약 + 액션 아이템 생성
+      const regenResponse = await fetchWithAuth(`${API_URL}/api/v1/reports/${currentMeetingId}/regenerate`, {
+        method: 'POST',
+      });
 
-      const analysis = await response.json();
-      setAiAnalysis(analysis);
+      const result = await regenResponse.json();
+      setAiAnalysis({
+        summary: result.summary,
+        actionItems: result.action_items_count > 0 ? Array(result.action_items_count).fill({ task: '액션 아이템' }) : [],
+      });
       toast.success('AI 분석이 완료되었습니다!');
-      console.log('AI Analysis result:', analysis);
+      console.log('AI Analysis result:', result);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('AI analysis error:', error);
-      setAnalysisError(error instanceof Error ? error.message : 'AI 분석 중 오류가 발생했습니다.');
-      toast.error('AI 분석에 실패했습니다.');
+      const msg = error?.name === 'AbortError' ? '분석 요청 시간이 초과되었습니다.' : (error?.message || 'AI 분석 중 네트워크 오류가 발생했습니다.');
+      setAnalysisError(msg);
+      toast.error(`${msg} 백엔드 연결을 확인해주세요.`);
     } finally {
       setIsAnalyzing(false);
     }
@@ -395,15 +421,32 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
       audioBlob: recordedAudioBlob // Blob을 전달
     };
 
+    // 백엔드에 전사 내용 저장 후 요약 재생성 호출
+    try {
+      if (!currentMeetingId) {
+        toast.error('회의 식별자가 없습니다. 녹음을 시작할 때 회의를 생성하지 못했습니다.');
+      } else {
+        // 1) 회의 종료/내용 저장
+        await endMeeting(currentMeetingId, { status: 'COMPLETED', ended_at: new Date().toISOString(), content });
+        // 2) 요약 재생성
+        const regen = await regenerateSummary(currentMeetingId);
+        // 3) UI 반영
+        setAiAnalysis({ summary: regen.summary, actionItems: regen.action_items_count });
+        toast.success('회의록이 저장되고 AI 요약이 생성되었습니다.');
+      }
+    } catch (err) {
+      console.error('Saving content / regenerating summary failed:', err);
+      toast.error('회의 저장 또는 요약 생성 중 오류가 발생했습니다.');
+    }
+
+    // 최종 UI 정리
     setTimeout(() => {
       onComplete(content, analysisWithAudio);
       setContent('');
-      setAiAnalysis(null);
       // Reset audio chunks for next recording
       audioChunksRef.current = [];
       setIsProcessing(false);
-      toast.success('회의록이 저장되었습니다!');
-    }, 800);
+    }, 500);
   };
 
   const handleCopyNotes = async () => {
