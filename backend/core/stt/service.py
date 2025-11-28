@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Optional, Dict, Any
 import os
 from dotenv import load_dotenv
 from backend.core.utils.logger import setup_logger
@@ -20,7 +20,7 @@ class STTService:
         self.DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY")
         if not self.DEEPGRAM_API_KEY:
             logger.error("DEEPGRAM_API_KEY not set", extra={"service": "stt"})
-            raise ValueError("DEEPGRAM_API_KEY ?�경 변?��? ?�정?��? ?�았?�니??")
+            raise ValueError("DEEPGRAM_API_KEY 환경 변수가 설정되지 않았습니다.")
 
         self.DEEPGRAM_BASE_URL = "wss://api.deepgram.com/v1/listen"
         self.DEEPGRAM_PARAMS = (
@@ -42,14 +42,14 @@ class STTService:
             "diarization_enabled": True
         })
         
-        # TODO: (?�??B) ElevenLabs ?�라?�언??초기??(배치 STT??
+        # TODO: (팀원 B) ElevenLabs 클라이언트 초기화 (배치 STT용)
     
     @api_retry_stt
     def get_realtime_stt_url(self) -> tuple[str, dict]:
         """
-        FastAPI가 Deepgram WebSocket???�결?�는 ???�요??URL�??�더�?반환?�니??
+        FastAPI가 Deepgram WebSocket에 연결하는 데 필요한 URL과 헤더를 반환합니다.
         
-        ?�동 ?�시?? ?�트?�크 ?�류 ??최�? 3???�시??
+        자동 재시도: 네트워크 오류 시 최대 3회 재시도
         """
         logger.debug("Generating Deepgram WebSocket URL", extra={"service": "stt"})
             

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
 from backend.database import get_db
+from backend.dependencies import get_current_user
 from backend.schemas import user as user_schema
 from backend.crud import user as user_crud
 from backend.core.auth import security
@@ -109,13 +110,14 @@ def login_for_access_token(form_data: user_schema.UserLogin, response: Response,
 
     # httpOnly Cookie에 토큰 설정 (브라우저용)
     is_production = os.getenv("ENVIRONMENT", "development") == "production"
+    samesite_value = "none" if is_production else "lax"
     response.set_cookie(
         key="access_token",
         value=token,
         httponly=True,
-        secure=is_production,
-        samesite="lax",
-        max_age=1800
+        secure=is_production,  # 프로덕션에서만 HTTPS 강제, 개발환경에선 HTTP 허용
+        samesite=samesite_value,  # 프로덕션에서는 "none"으로 크로스 도메인 허용
+        max_age=1800  # 30분 (초 단위)
     )
 
     # 응답 body에도 토큰 포함 (API 테스트 및 모바일 앱용)
@@ -178,15 +180,21 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         frontend_url = 'http://localhost:3000' if is_local else os.getenv('CORS_ORIGIN', 'https://round-note-web.onrender.com')
 
         is_production = os.getenv("ENVIRONMENT", "development") == "production"
+        
+        # 배포 환경에서는 쿠키가 크로스 도메인으로 전송되어야 하므로 samesite="none", secure=True 필요
+        samesite_value = "none" if is_production else "lax"
+        
         response = RedirectResponse(url=f"{frontend_url}/main")
         response.set_cookie(
             key="access_token",
             value=access_token,
             httponly=True,
-            secure=is_production,
-            samesite="lax",
-            max_age=1800
+            secure=is_production,  # 프로덕션에서만 HTTPS 강제
+            samesite=samesite_value,  # 프로덕션에서는 "none"으로 크로스 도메인 허용
+            max_age=1800  # 30분 (초 단위)
         )
+        
+        print(f"[DEBUG] 쿠키 설정 완료 - samesite={samesite_value}, secure={is_production}")
         return response
 
     except Exception as e:
@@ -219,21 +227,25 @@ def get_current_user_info(request: Request, db: Session = Depends(get_db)):
 # 로그아웃
 # -------------------------------
 @router.post("/logout")
-def logout(response: Response, request: Request, db: Session = Depends(get_db)):
-    token = request.cookies.get("access_token")
-    if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="인증 토큰이 없습니다.")
-
-    payload = security.verify_token(token)
-    if not payload:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 토큰입니다.")
-
-    user_id = payload.get("sub")
-    user = user_crud.get_user_by_id(db, user_id)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="사용자를 찾을 수 없습니다.")
-
-    response.delete_cookie(key="access_token", httponly=True, samesite="lax")
+def logout(response: Response, current_user: models.User = Depends(get_current_user)):
+    """
+    사용자 로그아웃 처리 - httpOnly Cookie 삭제
+    
+    JWT는 stateless하므로 서버에서 토큰을 무효화할 수 없지만,
+    쿠키를 삭제하여 클라이언트에서 토큰에 접근할 수 없도록 합니다.
+    """
+    print(f"[DEBUG] 로그아웃 - USER_ID: {current_user.USER_ID}, Email: {current_user.EMAIL}")
+    
+    # httpOnly Cookie 삭제 (환경에 맞게 samesite 설정)
+    is_production = os.getenv("ENVIRONMENT", "development") == "production"
+    samesite_value = "none" if is_production else "lax"
+    response.delete_cookie(
+        key="access_token",
+        httponly=True,
+        secure=is_production,
+        samesite=samesite_value
+    )
+    
     return {"message": "로그아웃되었습니다."}
 
 # -------------------------------

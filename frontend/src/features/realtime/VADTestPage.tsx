@@ -68,7 +68,13 @@ function VADTestPage() {
                 {/* 전사 결과 창 */}
                 <div style={{ backgroundColor: '#1e1e1e', padding: '15px', borderRadius: '8px', minHeight: '150px', maxHeight: '300px', overflowY: 'auto', marginBottom: '15px', whiteSpace: 'pre-wrap', fontSize: '14px' }}>
                     <h3 style={{ marginTop: 0, color: '#f8f9fa' }}>전사 결과 (Final Transcript)</h3>
-                    {Array.isArray(transcript) ? transcript.map((seg, i) => <pre key={i}>{JSON.stringify(seg, null, 2)}</pre>) : transcript}
+                    {transcript.map((segment) => (
+                        <div key={segment.id} style={{ marginBottom: '10px' }}>
+                            <span style={{ color: '#61dafb', fontWeight: 'bold' }}>{segment.speaker}</span>
+                            <span style={{ color: '#adb5bd' }}> [{segment.timestamp}]: </span>
+                            <span style={{ color: '#f8f9fa' }}>{segment.text}</span>
+                        </div>
+                    ))}
                 </div>
 
                 {/* 부분 전사 및 번역 창 */}
