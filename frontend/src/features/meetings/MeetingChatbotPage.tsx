@@ -4,6 +4,7 @@ import { Input } from '@/shared/ui/input';
 import { Button } from '@/shared/ui/button';
 import { Search, Calendar, Clock, Check, Send, Bot, User as UserIcon, CheckSquare, Square } from 'lucide-react';
 import type { Meeting } from '@/features/dashboard/Dashboard';
+import { fetchWithAuth, handleAuthResponse } from '@/utils/auth';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -107,31 +108,17 @@ export function MeetingChatbotPage({ meetings }: MeetingChatbotPageProps) {
             // activeChats에서 meeting ID 추출
             const meetingIds = activeChats.map(m => m.id);
 
-            const response = await fetch(`${API_URL}/api/v1/chatbot/ask-fulltext`, {
+            const response = await fetchWithAuth(`${API_URL}/api/v1/chatbot/ask-fulltext`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                credentials: 'include', // 쿠키 포함
                 body: JSON.stringify({
                     meeting_ids: meetingIds,
                     question: question,
                 }),
             });
-
-            if (!response.ok) {
-                let errorMessage = '챗봇 응답 생성 중 오류가 발생했습니다.';
-                try {
-                    const errorData = await response.json();
-                    errorMessage = errorData.detail || errorMessage;
-                } catch (parseError) {
-                    // JSON 파싱 실패 - HTML 에러 페이지를 받은 경우
-                    const text = await response.text();
-                    console.error('백엔드 응답 파싱 실패:', text.substring(0, 200));
-                    errorMessage = `서버 오류 (${response.status}): JSON 파싱 실패`;
-                }
-                throw new Error(errorMessage);
-            }
+            await handleAuthResponse(response);
 
             const data = await response.json();
             return data.answer;
