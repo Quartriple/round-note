@@ -12,7 +12,7 @@ load_dotenv()
 logger = setup_logger(__name__)
 
 class STTService:
-    """STT 서비스: Deepgram 연결 정보 관리 및 배치 STT 처리를 담당합니다."""
+    """STT ?�비?? Deepgram ?�결 ?�보 관�?�?배치 STT 처리�??�당?�니??"""
     
     def __init__(self):
         logger.info("Initializing STTService", extra={"service": "stt"})
@@ -24,15 +24,15 @@ class STTService:
 
         self.DEEPGRAM_BASE_URL = "wss://api.deepgram.com/v1/listen"
         self.DEEPGRAM_PARAMS = (
-            # "?punctuate=true"  # 구두점 추가
-            "?language=ko"     # 한국어 지정
-            "&model=nova-2"    # 최신 고성능 모델
-            "&diarize=true"    # 화자 분리 (Pass 1 핵심 기능)
-            "&encoding=linear16" # 오디오 인코딩 형식
-            "&sample_rate=16000" # 오디오 샘플링 속도 (마이크/파일 표준)
-            "&smart_format=true" # 스마트 포맷팅 (숫자, 날짜 등)
-            # "&channel=1"        # 단일 채널 오디오
-            # "&endpointer=true" # 음성 활동 감지(선택 사항, 필요 시 활성화)
+            # "?punctuate=true"  # 구두??추�?
+            "?language=ko"     # ?�국??지??
+            "&model=nova-2"    # 최신 고성??모델
+            "&diarize=true"    # ?�자 분리 (Pass 1 ?�심 기능)
+            "&encoding=linear16" # ?�디???�코???�식
+            "&sample_rate=16000" # ?�디???�플�??�도 (마이???�일 ?��?)
+            "&smart_format=true" # ?�마???�맷??(?�자, ?�짜 ??
+            # "&channel=1"        # ?�일 채널 ?�디??
+            # "&endpointer=true" # ?�성 ?�동 감�?(?�택 ?�항, ?�요 ???�성??
         )
         
         logger.info("STTService initialized successfully", extra={
