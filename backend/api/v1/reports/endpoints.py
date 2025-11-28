@@ -722,6 +722,9 @@ async def push_action_items_to_jira(
     updated = []
     failed = []
     
+    # Jira base_url에서 issue URL 생성을 위한 준비
+    jira_base_url = config["base_url"].rstrip('/')
+    
     for item in action_items:
         try:
             # external_tool에 Jira 이슈 키가 있으면 업데이트 시도
@@ -743,6 +746,7 @@ async def push_action_items_to_jira(
                         updated.append({
                             "item_id": item.ITEM_ID,
                             "issue_key": item.EXTERNAL_TOOL,
+                            "issue_url": f"{jira_base_url}/browse/{item.EXTERNAL_TOOL}",
                             "action": "updated"
                         })
                         continue  # 업데이트 성공 시 다음 항목으로
@@ -772,6 +776,7 @@ async def push_action_items_to_jira(
             created.append({
                 "item_id": item.ITEM_ID,
                 "issue_key": issue_key,
+                "issue_url": f"{jira_base_url}/browse/{issue_key}",
                 "action": "created"
             })
                 
@@ -790,6 +795,7 @@ async def push_action_items_to_jira(
     return {
         "message": "Jira synchronization completed",
         "project_key": project_key,
+        "jira_base_url": jira_base_url,
         "created": created,
         "updated": updated,
         "failed": failed,
