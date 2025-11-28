@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { MeetingStart } from "@/features/realtime/MeetingStart";
 import { MeetingListView } from "@/features/meetings/MeetingListView";
+import { MeetingChatbotPage } from "@/features/meetings/MeetingChatbotPage";
 import { ActionItemsPage } from "@/features/action-items/ActionItemsPage";
 import { TemplateSettings } from "@/features/settings/TemplateSettings";
 // import { NotificationSettings } from "@/features/settings/NotificationSettings";
@@ -23,6 +24,7 @@ import {
   Tag,
   ChevronRight,
   ChevronLeft,
+  MessageSquare,
 } from "lucide-react";
 import { Toaster } from "../../shared/ui/sonner";
 import Image from "next/image";
@@ -269,6 +271,9 @@ export function Dashboard() {
           />
         );
 
+      case "chatbot":
+        return <MeetingChatbotPage meetings={meetings} />;
+
       case "template":
         return <TemplateSettings onBack={() => setActiveSection("settings")} />;
 
@@ -481,6 +486,7 @@ export function Dashboard() {
             icon={ClipboardList}
             label="회의 내역"
           />
+          <SidebarNavItem section="chatbot" icon={MessageSquare} label="회의 챗봇" />
           <SidebarNavItem section="settings" icon={Settings} label="환경설정" />
         </nav>
 

@@ -8,6 +8,9 @@ from backend.core.auth import security
 from backend import models
 from authlib.integrations.starlette_client import OAuth
 import os
+from backend.core.utils.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 router = APIRouter()
 
@@ -25,14 +28,49 @@ oauth.register(
 # 회원가입
 # -------------------------------
 @router.post("/register")
-def register_user(user: user_schema.UserCreate, db: Session = Depends(get_db)):
+def register_user(user: user_schema.UserCreate, response: Response, db: Session = Depends(get_db)):
+    """새로운 사용자를 등록하고 자동으로 로그인 토큰을 발급합니다."""
+    logger.info("User registration attempt", extra={
+        "email": user.email,
+        "name": user.name,
+        "action": "register"
+    })
+
+    # 이메일 중복 체크
     existing_user = user_crud.get_user_by_email(db, user.email)
     if existing_user:
+        logger.warning("Registration failed - email already exists", extra={
+            "email": user.email,
+            "action": "register"
+        })
         raise HTTPException(status_code=400, detail="이미 등록된 이메일입니다.")
 
     db_user = user_crud.create_user(db, user)
+    logger.info("User created successfully", extra={
+        "user_id": db_user.USER_ID,
+        "email": db_user.EMAIL,
+        "action": "register_success"
+    })
+
+    # 회원가입 성공 후 자동으로 토큰 발급
+    token = security.create_access_token({"sub": db_user.USER_ID, "email": db_user.EMAIL})
+
+    # httpOnly Cookie에 토큰 설정 (브라우저용)
+    is_production = os.getenv("ENVIRONMENT", "development") == "production"
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=is_production,
+        samesite="lax",
+        max_age=1800  # 30분
+    )
+
+    # 응답 body에도 토큰 포함 (API 테스트 및 모바일 앱용)
     return {
-        "message": "회원가입 성공. 로그인해주세요.",
+        "message": "회원가입 성공",
+        "access_token": token,
+        "token_type": "bearer",
         "user": {
             "id": db_user.USER_ID,
             "email": db_user.EMAIL,
@@ -45,8 +83,17 @@ def register_user(user: user_schema.UserCreate, db: Session = Depends(get_db)):
 # -------------------------------
 @router.post("/login")
 def login_for_access_token(form_data: user_schema.UserLogin, response: Response, db: Session = Depends(get_db)):
+    logger.info("Login attempt", extra={
+        "email": form_data.email,
+        "action": "login"
+    })
+    
     user = user_crud.authenticate_user(db, form_data.email, form_data.password)
     if not user:
+        logger.warning("Login failed - invalid credentials", extra={
+            "email": form_data.email,
+            "action": "login"
+        })
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="이메일 또는 비밀번호가 올바르지 않습니다.",
@@ -54,7 +101,13 @@ def login_for_access_token(form_data: user_schema.UserLogin, response: Response,
         )
 
     token = security.create_access_token({"sub": user.USER_ID, "email": user.EMAIL})
+    logger.info("Login successful", extra={
+        "user_id": user.USER_ID,
+        "email": user.EMAIL,
+        "action": "login"
+    })
 
+    # httpOnly Cookie에 토큰 설정 (브라우저용)
     is_production = os.getenv("ENVIRONMENT", "development") == "production"
     response.set_cookie(
         key="access_token",
@@ -65,8 +118,11 @@ def login_for_access_token(form_data: user_schema.UserLogin, response: Response,
         max_age=1800
     )
 
+    # 응답 body에도 토큰 포함 (API 테스트 및 모바일 앱용)
     return {
         "message": "로그인 성공",
+        "access_token": token,
+        "token_type": "bearer",
         "user": {
             "id": user.USER_ID,
             "email": user.EMAIL,
