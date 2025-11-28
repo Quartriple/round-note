@@ -35,8 +35,14 @@ class ChatbotService:
             client: 테스트용 OpenAI 클라이언트 주입 (없으면 환경변수 기반 생성)
             model: 사용할 ChatGPT 계열 모델명
         """
-        self.client = client or OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key and not client:
+            logging.getLogger(__name__).error("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다!")
+            raise ValueError("OPENAI_API_KEY가 설정되지 않았습니다.")
+        
+        self.client = client or OpenAI(api_key=api_key)
         self.model = model
+        logging.getLogger(__name__).info(f"ChatbotService 초기화 완료 - 모델: {model}")
 
     def _build_meeting_context(self, meeting: Optional[models.Meeting]) -> dict:
         """
@@ -65,15 +71,24 @@ class ChatbotService:
         OpenAI ChatCompletion 호출 래퍼
         (테스트에서 override 하기 쉽도록 분리)
         """
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": user_content},
-            ],
-            temperature=0.3,
-        )
-        return response.choices[0].message.content
+        logger = logging.getLogger(__name__)
+        logger.info(f"OpenAI API 호출 시작 - 모델: {self.model}")
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_content},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=0.3,
+            )
+            answer = response.choices[0].message.content
+            logger.info(f"OpenAI API 호출 성공 - 응답 길이: {len(answer) if answer else 0}")
+            return answer
+        except Exception as e:
+            logger.error(f"OpenAI API 호출 실패: {str(e)}", exc_info=True)
+            raise
 
     def answer_question(
         self,
@@ -229,6 +244,9 @@ class ChatbotService:
             FullTextChatbotResponse: 답변과 사용된 회의 정보
         """
         from datetime import datetime
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"풀텍스트 챗봇 처리 시작 - 회의 ID: {payload.meeting_ids}")
 
         # 1) 회의 조회
         meetings = (
@@ -238,6 +256,7 @@ class ChatbotService:
         )
 
         if not meetings:
+            logger.warning("유효한 회의를 찾을 수 없습니다.")
             raise ValueError("유효한 회의를 찾을 수 없습니다.")
 
         # 2) 회의별 컨텍스트 구성
@@ -292,12 +311,16 @@ class ChatbotService:
         )
 
         # 5) LLM 호출
+        logger.info("LLM 호출 시작")
         answer_text = self._invoke_llm(system_prompt, user_prompt)
+        logger.info(f"LLM 호출 완료 - 답변 길이: {len(answer_text)}")
 
         # 6) 응답 생성
-        return FullTextChatbotResponse(
+        response = FullTextChatbotResponse(
             question=payload.question,
             answer=answer_text,
             used_meetings=meeting_contexts,
             created_at=datetime.now(),
         )
+        logger.info("풀텍스트 챗봇 처리 완료")
+        return response
