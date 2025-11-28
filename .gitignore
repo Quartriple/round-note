@@ -79,3 +79,5 @@ docker-compose.override.yml
 
 # 압축파일 제외
 *.zip*.zip 
+
+.claude/
