@@ -91,6 +91,8 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
   const summaryEndRef = useRef<HTMLDivElement>(null);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const summaryIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const transcriptRef = useRef<HTMLDivElement>(null);
+  const summaryRef = useRef<HTMLDivElement>(null);
 
   // Audio recording states
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
@@ -117,6 +119,20 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
     return `${dateStr} ${timeStr} 회의(${count})`;
   };
 
+  // 전사 자동 스크롤
+  useEffect(() => {
+    if (transcriptRef.current) {
+      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+    }
+  }, [transcript, partialText]);
+
+  // 요약 자동 스크롤
+  useEffect(() => {
+    if (summaryRef.current) {
+      summaryRef.current.scrollTop = summaryRef.current.scrollHeight;
+    }
+  }, [timelineSummaries]);
+
   // Load translation settings
   useEffect(() => {
     const translationSettings = localStorage.getItem('roundnote-translation-settings');
@@ -136,12 +152,15 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
   useEffect(() => {
     if (transcript.length > 0) {
       // 텍스트 형태로 변환하여 저장 (나중에 저장할 때 사용)
-      const textContent = transcript.map(seg => `[${seg.timestamp}] ${seg.speaker}\n${seg.text}`).join('\n\n');
+      const textContent = transcript
+        .map(seg => `[${seg.timestamp}] ${seg.speaker}\n${seg.text}`)
+        .join('\n\n');
       setContent(textContent);
 
-      setTimeout(() => {
-        contentEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
+      // ✅ 내부 div만 자동 스크롤
+      if (transcriptRef.current) {
+        transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+      }
     }
   }, [transcript]);
 
@@ -203,14 +222,15 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
           }),
         }
       );
-
       if (response.ok) {
         const analysis = await response.json();
         if (analysis.summary) {
           setRealtimeSummary(analysis.summary);
-          setTimeout(() => {
-            summaryEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-          }, 100);
+
+          // ✅ 내부 요약 div만 자동 스크롤
+          if (summaryRef.current) {
+            summaryRef.current.scrollTop = summaryRef.current.scrollHeight;
+          }
         }
       }
     } catch (error) {
@@ -291,7 +311,8 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
     if (isRecording) {
       stopRecording();
       stopAudioRecording();
-      toast.success('녹음이 중지되었습니다.');
+      // End meeting and save
+      await handleSubmit();
     } else {
       try {
         await startRecording();
@@ -351,8 +372,8 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
 
     if (!content.trim()) {
       toast.error('회의 내용을 입력해주세요.');
@@ -364,10 +385,10 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
     }
 
     setIsProcessing(true);
-    
+
     // Finalize audio recording and get Blob
     const recordedAudioBlob = await finalizeAudioRecording();
-    
+
     // Add audio Blob to analysis
     const analysisWithAudio = {
       ...aiAnalysis,
@@ -557,7 +578,7 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
                   {isRecording ? (
                     <>
                       <StopCircle className="w-5 h-5" />
-                      녹취 중지
+                      회의 종료
                     </>
                   ) : (
                     <>
@@ -590,7 +611,10 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
               </div>
 
               {/* 전사 내용 표시 영역 - 타임라인 스타일 */}
-              <div className="h-[500px] w-[1000px] overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50">
+              <div
+                ref={transcriptRef}
+                className="h-[500px] w-[1000px] overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50"
+              >
                 {transcript.length > 0 || partialText ? (
                   <div className="space-y-6">
                     {transcript.map((segment) => (
@@ -716,7 +740,10 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
               </div>
 
               {/* 요약 내용 표시 영역 - 고정 높이 + 스크롤 */}
-              <div className="h-[400px] w-[1000px] overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50">
+              <div
+                ref={summaryRef}
+                className="h-[500px] w-[1000px] overflow-y-auto border border-slate-200 rounded-lg p-4 bg-slate-50"
+              >
                 {timelineSummaries.length > 0 ? (
                   <div className="space-y-3">
                     {timelineSummaries.map((summary, index) => (
@@ -844,8 +871,8 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
               <div>
                 <h4 className="font-semibold text-green-800 mb-1">액션 아이템</h4>
                 <ul className="list-disc list-inside text-green-700 text-sm">
-                  {aiAnalysis.actionItems.map((item: string, i: number) => (
-                    <li key={i}>{item}</li>
+                  {aiAnalysis.actionItems.map((item: any, i: number) => (
+                    <li key={i}>{typeof item === 'string' ? item : (item.task || item.title || item.text || '')}</li>
                   ))}
                 </ul>
               </div>
@@ -853,23 +880,6 @@ export function MeetingContentInput({ meetingInfo, onComplete, onBack, meetings 
           </CardContent>
         </Card>
       )}
-
-      {/* Bottom Action Bar */}
-      <div className="flex justify-end items-center mt-6 mr-4">
-        <Button onClick={handleSubmit} disabled={!content.trim() || isProcessing} className="gap-2 bg-primary hover:bg-primary/90">
-          {isProcessing ? (
-            <>
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              저장 중...
-            </>
-          ) : (
-            <>
-              <Save className="w-4 h-4" />
-              회의록 저장
-            </>
-          )}
-        </Button>
-      </div>
     </div>
   );
 }

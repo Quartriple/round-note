@@ -4,7 +4,7 @@ import React from 'react';
 // import logo from '../logo.svg';
 
 import useHealthCheck from '@/hooks/useHealthCheck';
-import useRealtimeStream from '@/hooks/useRealtimeStream'; 
+import useRealtimeStream from '@/hooks/useRealtimeStream';
 
 function VADTestPage() {
     // 1. Health Check 훅 사용
@@ -39,20 +39,20 @@ function VADTestPage() {
         <header className="App-header">
             {/* <img src={logo} className="App-logo" alt="logo" /> */}
             <h1>Round Note - Sprint 0 & 1 Test</h1>
-            
+
             {/* 헬스 체크 섹션 */}
             <div style={{ marginBottom: '30px', padding: '10px', border: '1px solid #61dafb', borderRadius: '8px', maxWidth: '600px', width: '90%' }}>
                 <h2>API Health Check Result:</h2>
                 {renderHealthCheck()}
             </div>
-            
+
             {/* 실시간 스트리밍 섹션 (실제 UI) */}
             <div style={{ width: '90%', maxWidth: '900px', textAlign: 'left', backgroundColor: '#3c4049', padding: '20px', borderRadius: '12px', boxShadow: '0 4px 8px rgba(0,0,0,0.3)' }}>
                 <h2>🎙️ 실시간 회의 스트리밍</h2>
-                
+
                 {/* 컨트롤 버튼 */}
                 <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-                    <button 
+                    <button
                         onClick={isRecording ? stopRecording : startRecording}
                         disabled={loading}
                         style={{ padding: '10px 20px', fontSize: '16px', cursor: 'pointer', backgroundColor: isRecording ? '#dc3545' : '#28a745', color: 'white', border: 'none', borderRadius: '5px' }}
@@ -62,7 +62,7 @@ function VADTestPage() {
                 </div>
 
                 <p style={{ color: isRecording ? '#28a745' : '#6c757d', fontWeight: 'bold' }}>
-                        상태: {isRecording ? '🔴 녹음 중' : '⚪ 대기 중'}
+                    상태: {isRecording ? '🔴 녹음 중' : '⚪ 대기 중'}
                 </p>
 
                 {/* 전사 결과 창 */}

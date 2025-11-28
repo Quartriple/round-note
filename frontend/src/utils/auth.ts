@@ -26,6 +26,11 @@ export async function checkAuth(): Promise<{ id: string; email: string; name: st
       };
     }
 
+    // 401 Unauthorized는 정상적인 응답 (로그인하지 않은 상태)
+    if (response.status === 401) {
+      return null;
+    }
+
     return null;
   } catch (error) {
     console.error('Authentication check failed:', error);

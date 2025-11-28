@@ -25,7 +25,7 @@ services:
   backend:
     container_name: roundnote_backend
     # 위에서 작성한 backend/Dockerfile을 사용하여 이미지를 빌드합니다.
-    build: 
+    build:
       context: .
       dockerfile: ./backend/Dockerfile
     env_file:

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, status, HTTPException, UploadFile, File, BackgroundTasks, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List
@@ -9,6 +9,9 @@ from backend.crud import meeting as meeting_crud
 from backend.dependencies import get_current_user
 from backend import models
 # TODO: Redis/RQ 클라이언트 (get_redis_conn) 임포트 및 backend.worker.process_meeting_job 임포트
+# [추가]
+from backend.core.llm.rag.indexer import index_meeting_transcript, index_meeting_transcript_background
+from pydantic import BaseModel
 
 router = APIRouter(tags=["Meetings"])
 
@@ -512,3 +515,94 @@ async def upload_meeting_audio(
         "audio_url": audio_url,
         "file_size": len(content)
     }
+
+# [추가(테스트용)]
+class DummyContentRequest(BaseModel):
+    content: str
+
+@router.post("/{meeting_id}/dummy-content")
+def set_dummy_content(
+    meeting_id: str,
+    body: DummyContentRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = None,
+):
+    meeting = (
+        db.query(models.Meeting)
+        .filter(models.Meeting.MEETING_ID == meeting_id)
+        .first()
+    )
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    meeting.CONTENT = body.content
+    db.commit()
+    # Schedule indexing as a background task so the request isn't blocked
+    if background_tasks is not None:
+        background_tasks.add_task(index_meeting_transcript_background, meeting_id)
+    else:
+        # fallback: run synchronously if BackgroundTasks not provided
+        index_meeting_transcript(db, meeting_id)
+
+    return {"status": "ok"}
+
+@router.post("/{meeting_id}/index")
+def index_meeting(
+    meeting_id: str,
+    token: str = None,
+    request: Request = None,
+    db: Session = Depends(get_db),
+    background_tasks: BackgroundTasks = None,
+):
+    """
+    Trigger indexing for a specific meeting. This schedules a background
+    task that creates a fresh DB session to perform embedding generation
+    and storage.
+    """
+    # Authenticate: allow token via query param (`?token=...`) or Authorization header
+    try:
+        from backend.core.auth.security import verify_token
+        from backend.crud import user as user_crud
+
+        auth_token = token
+        # If no token query param, try Authorization header
+        if not auth_token and request is not None:
+            auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+            if auth_header and auth_header.lower().startswith("bearer "):
+                auth_token = auth_header.split(" ", 1)[1]
+
+        if not auth_token:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="인증 토큰이 필요합니다.")
+
+        payload = verify_token(auth_token)
+        if not payload:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 토큰입니다.")
+
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="토큰에서 사용자 ID를 찾을 수 없습니다.")
+
+        current_user = user_crud.get_user_by_id(db, user_id)
+        if not current_user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="사용자를 찾을 수 없습니다.")
+
+        # Permission: only creator can trigger indexing
+        meeting_obj = db.query(models.Meeting).filter(models.Meeting.MEETING_ID == meeting_id).first()
+        if not meeting_obj:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="회의를 찾을 수 없습니다.")
+        if meeting_obj.CREATOR_ID != current_user.USER_ID:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="본인이 생성한 회의만 색인할 수 있습니다.")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"토큰 검증 오류: {str(e)}")
+
+    # Schedule or run indexing
+    if background_tasks is not None:
+        background_tasks.add_task(index_meeting_transcript_background, meeting_id)
+        return {"status": "scheduled"}
+    else:
+        index_meeting_transcript(db, meeting_id)
+        return {"status": "indexed"}
