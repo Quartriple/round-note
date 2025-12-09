@@ -76,156 +76,93 @@ def retranscribe_meeting(meeting_id: str, audio_filename: str | None = None) -> 
         meeting.FINAL_TRANSCRIPT_ERROR = None
         db.commit()
 
-        # Resolve audio path from shared disk or local directories
-        filename = audio_filename or (os.path.basename(meeting.LOCATION) if meeting.LOCATION else f"{meeting_id}.wav")
-        audio_path = None
+        # S3 Object Key 가져오기
+        object_key = meeting.LOCATION or meeting.AUDIO_URL
         
-        print(f"🔍 [WORKER] 오디오 파일 탐색: {filename}")
+        if not object_key:
+            print(f"❌ [WORKER] S3 object key not found in DB for meeting: {meeting_id}")
+            meeting.FINAL_TRANSCRIPT_STATUS = "error"
+            meeting.FINAL_TRANSCRIPT_ERROR = "Audio file not uploaded to S3"
+            db.commit()
+            return {"success": False, "message": "Audio file not uploaded", "meeting_id": meeting_id}
         
-        # Render Disk 또는 로컬 경로에서 파일 찾기
-        possible_dirs = []
-        if os.path.exists('/app/audio_storage'):
-            possible_dirs.append('/app/audio_storage')
+        print(f"🔍 [WORKER] S3 Object Key: {object_key}")
+        
+        # 임시 다운로드 경로 설정
+        import tempfile
+        temp_dir = tempfile.gettempdir()
+        audio_path = os.path.join(temp_dir, f"{meeting_id}_process.wav")
+        
+        print(f"📥 [WORKER] Downloading from S3 to: {audio_path}")
+        
+        # S3에서 다운로드
+        from backend.core.storage.service import StorageService
+        storage_service = StorageService()
+        
+        # 동기 함수를 asyncio로 실행
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
-            root_dir = Path(__file__).resolve().parents[1]
-            possible_dirs.append(str(root_dir / "audio_storage"))
-        except Exception:
-            pass
-        possible_dirs.append(os.path.abspath('./audio_storage'))
-        possible_dirs.append(os.path.abspath('../audio_storage'))
-        possible_dirs.append(os.path.abspath('./backend/audio_storage'))
+            download_success = loop.run_until_complete(
+                storage_service.download_from_ncp(object_key, audio_path)
+            )
+        finally:
+            loop.close()
         
-        print(f"📂 [WORKER] 탐색 경로: {possible_dirs}")
-        
-        for base in possible_dirs:
-            candidate = os.path.join(base, filename)
-            print(f"   검사 중: {candidate}")
-            if os.path.exists(candidate):
-                audio_path = candidate
-                print(f"✅ [WORKER] 파일 발견: {audio_path}")
-                break
-
-        if not audio_path:
-            print(f"❌ [WORKER] 오디오 파일을 찾을 수 없음: {filename}")
+        if not download_success:
+            print(f"❌ [WORKER] Failed to download audio from S3: {object_key}")
             meeting.FINAL_TRANSCRIPT_STATUS = "error"
-            meeting.FINAL_TRANSCRIPT_ERROR = f"Audio file not found: {filename}"
+            meeting.FINAL_TRANSCRIPT_ERROR = f"Failed to download audio from S3: {object_key}"
             db.commit()
-            return {"success": False, "message": "Audio file not found", "filename": filename}
+            return {"success": False, "message": "Failed to download from S3", "object_key": object_key}
+        
+        print(f"✅ [WORKER] Audio file downloaded: {audio_path}")
 
-        # Force reload STT service module to ensure latest code
-        import backend.core.stt.service
-        importlib.reload(backend.core.stt.service)
-        from backend.core.stt.service import STTService as FreshSTTService
-        
-        # Run ElevenLabs STT with meeting start time and num_speakers hint
-        stt = FreshSTTService()
-        
-        # DEBUG: Check loaded module file path and method signature
-        import inspect
-        stt_module = inspect.getfile(FreshSTTService)
-        transcribe_method = inspect.signature(stt.transcribe_wav)
-        print(f"[Worker DEBUG] STTService loaded from: {stt_module}")
-        print(f"[Worker DEBUG] transcribe_wav signature: {transcribe_method}")
-        
-        # Get num_speakers from PARTICIPANTS field if available
-        num_speakers = None
-        if meeting.PARTICIPANTS and isinstance(meeting.PARTICIPANTS, list):
-            num_speakers = len(meeting.PARTICIPANTS)
-            print(f"[Worker] Using num_speakers hint: {num_speakers} from PARTICIPANTS field")
-        
-        text, raw = stt.transcribe_wav(audio_path, language="ko", meeting_start_time=meeting.START_DT, num_speakers=num_speakers)
-        if text:
-            meeting.FINAL_TRANSCRIPT_TEXT = text
-            meeting.FINAL_TRANSCRIPT_STATUS = "done"
-            # Overwrite realtime transcript with final transcript for consistency
-            meeting.CONTENT = text
+        # Wrap processing logic in try-finally to ensure temp file cleanup
+        try:
+            # Force reload STT service module to ensure latest code
+            import backend.core.stt.service
+            importlib.reload(backend.core.stt.service)
+            from backend.core.stt.service import STTService as FreshSTTService
             
-            # Synchronously generate summary and action items from final transcript
-            print(f"[Worker] STT completed for {meeting_id}, generating summary and embeddings...")
-            try:
-                # Use LLM service directly in this transaction
-                llm = LLMService()
-                result = llm.get_summary_and_actions_sync([text]) if hasattr(LLMService, 'get_summary_and_actions_sync') else None
-                if result is None:
-                    import asyncio
-                    async def _run():
-                        return await llm.get_summary_and_actions([text])
-                    result = asyncio.get_event_loop().run_until_complete(_run())
-
-                print(f"[Worker] LLM result: {result}")
+            # Run ElevenLabs STT with meeting start time and num_speakers hint
+            stt = FreshSTTService()
+            
+            # DEBUG: Check loaded module file path and method signature
+            import inspect
+            stt_module = inspect.getfile(FreshSTTService)
+            transcribe_method = inspect.signature(stt.transcribe_wav)
+            print(f"[Worker DEBUG] STTService loaded from: {stt_module}")
+            print(f"[Worker DEBUG] transcribe_wav signature: {transcribe_method}")
+            
+            # Get num_speakers from PARTICIPANTS field if available
+            num_speakers = None
+            if meeting.PARTICIPANTS and isinstance(meeting.PARTICIPANTS, list):
+                num_speakers = len(meeting.PARTICIPANTS)
+                print(f"[Worker] Using num_speakers hint: {num_speakers} from PARTICIPANTS field")
+            
+            text, raw = stt.transcribe_wav(audio_path, language="ko", meeting_start_time=meeting.START_DT, num_speakers=num_speakers)
+            if text:
+                meeting.FINAL_TRANSCRIPT_TEXT = text
+                meeting.FINAL_TRANSCRIPT_STATUS = "done"
+                # Overwrite realtime transcript with final transcript for consistency
+                meeting.CONTENT = text
                 
-                # Save summary
-                rolling_summary = result.get("rolling_summary") or result.get("summary")
-                if rolling_summary:
-                    summary_obj = models.Summary(
-                        SUMMARY_ID=str(ulid.new()),
-                        MEETING_ID=meeting_id,
-                        FORMAT="markdown",
-                        CONTENT=rolling_summary
-                    )
-                    db.add(summary_obj)
-                    print(f"[Worker] Summary created for {meeting_id}")
-
-                # Save action items
-                action_items_list = result.get("action_items", [])
-                print(f"[Worker] Processing {len(action_items_list)} action items for {meeting_id}")
-                for item_data in action_items_list:
-                    deadline_str = item_data.get("deadline")
-                    due_dt = None
-                    if deadline_str and deadline_str != "미정":
-                        from datetime import datetime
-                        try:
-                            due_dt = datetime.strptime(deadline_str, "%Y-%m-%d")
-                        except Exception:
-                            due_dt = None
-
-                    ai = models.ActionItem(
-                        ITEM_ID=str(ulid.new()),
-                        MEETING_ID=meeting_id,
-                        TITLE=item_data.get("task", ""),
-                        DESCRIPTION=item_data.get("task", ""),
-                        STATUS="PENDING",
-                        PRIORITY="MEDIUM",
-                        ASSIGNEE_ID=None,
-                        ASSIGNEE_NAME=item_data.get("assignee"),
-                        DUE_DT=due_dt
-                    )
-                    db.add(ai)
-                
-                print(f"[Worker] Action items created for {meeting_id}")
-            except Exception as e:
-                print(f"[Worker] Summarization failed: {e}")
-            
-            # Synchronously index embeddings
-            try:
-                from backend.core.llm.rag.indexer import index_meeting_transcript
-                index_meeting_transcript(db, meeting_id)
-                print(f"[Worker] Embeddings indexed for {meeting_id}")
-            except Exception as e:
-                print(f"[Worker] Embedding indexing failed: {e}")
-            
-            # Commit all changes in one transaction
-            db.commit()
-            print(f"✅ [WORKER] All tasks completed for {meeting_id}")
-            
-            return {"success": True, "meeting_id": meeting_id, "length": len(text or "")}
-        else:
-            meeting.FINAL_TRANSCRIPT_STATUS = "error"
-            meeting.FINAL_TRANSCRIPT_ERROR = (raw or {}).get("message") or str((raw or {}))
-            db.commit()
-            # Fallback: use realtime transcript CONTENT to continue pipeline
-            try:
-                if meeting.CONTENT and meeting.CONTENT.strip():
-                    from backend.core.llm.rag.indexer import index_meeting_transcript
-                    # Summarize and action items from CONTENT
+                # Synchronously generate summary and action items from final transcript
+                print(f"[Worker] STT completed for {meeting_id}, generating summary and embeddings...")
+                try:
+                    # Use LLM service directly in this transaction
                     llm = LLMService()
-                    result = llm.get_summary_and_actions_sync([meeting.CONTENT]) if hasattr(LLMService, 'get_summary_and_actions_sync') else None
+                    result = llm.get_summary_and_actions_sync([text]) if hasattr(LLMService, 'get_summary_and_actions_sync') else None
                     if result is None:
                         import asyncio
                         async def _run():
-                            return await llm.get_summary_and_actions([meeting.CONTENT])
+                            return await llm.get_summary_and_actions([text])
                         result = asyncio.get_event_loop().run_until_complete(_run())
 
+                    print(f"[Worker] LLM result: {result}")
+                    
                     # Save summary
                     rolling_summary = result.get("rolling_summary") or result.get("summary")
                     if rolling_summary:
@@ -236,9 +173,12 @@ def retranscribe_meeting(meeting_id: str, audio_filename: str | None = None) -> 
                             CONTENT=rolling_summary
                         )
                         db.add(summary_obj)
+                        print(f"[Worker] Summary created for {meeting_id}")
 
                     # Save action items
-                    for item_data in result.get("action_items", []):
+                    action_items_list = result.get("action_items", [])
+                    print(f"[Worker] Processing {len(action_items_list)} action items for {meeting_id}")
+                    for item_data in action_items_list:
                         deadline_str = item_data.get("deadline")
                         due_dt = None
                         if deadline_str and deadline_str != "미정":
@@ -260,13 +200,90 @@ def retranscribe_meeting(meeting_id: str, audio_filename: str | None = None) -> 
                             DUE_DT=due_dt
                         )
                         db.add(ai)
-
-                    # Index embeddings from fallback text
+                    
+                    print(f"[Worker] Action items created for {meeting_id}")
+                except Exception as e:
+                    print(f"[Worker] Summarization failed: {e}")
+                
+                # Synchronously index embeddings
+                try:
+                    from backend.core.llm.rag.indexer import index_meeting_transcript
                     index_meeting_transcript(db, meeting_id)
-                    db.commit()
-            except Exception:
-                db.rollback()
-            return {"success": False, "meeting_id": meeting_id, "error": meeting.FINAL_TRANSCRIPT_ERROR}
+                    print(f"[Worker] Embeddings indexed for {meeting_id}")
+                except Exception as e:
+                    print(f"[Worker] Embedding indexing failed: {e}")
+                
+                # Commit all changes in one transaction
+                db.commit()
+                print(f"✅ [WORKER] All tasks completed for {meeting_id}")
+                
+                return {"success": True, "meeting_id": meeting_id, "length": len(text or "")}
+            else:
+                meeting.FINAL_TRANSCRIPT_STATUS = "error"
+                meeting.FINAL_TRANSCRIPT_ERROR = (raw or {}).get("message") or str((raw or {}))
+                db.commit()
+                # Fallback: use realtime transcript CONTENT to continue pipeline
+                try:
+                    if meeting.CONTENT and meeting.CONTENT.strip():
+                        from backend.core.llm.rag.indexer import index_meeting_transcript
+                        # Summarize and action items from CONTENT
+                        llm = LLMService()
+                        result = llm.get_summary_and_actions_sync([meeting.CONTENT]) if hasattr(LLMService, 'get_summary_and_actions_sync') else None
+                        if result is None:
+                            import asyncio
+                            async def _run():
+                                return await llm.get_summary_and_actions([meeting.CONTENT])
+                            result = asyncio.get_event_loop().run_until_complete(_run())
+
+                        # Save summary
+                        rolling_summary = result.get("rolling_summary") or result.get("summary")
+                        if rolling_summary:
+                            summary_obj = models.Summary(
+                                SUMMARY_ID=str(ulid.new()),
+                                MEETING_ID=meeting_id,
+                                FORMAT="markdown",
+                                CONTENT=rolling_summary
+                            )
+                            db.add(summary_obj)
+
+                        # Save action items
+                        for item_data in result.get("action_items", []):
+                            deadline_str = item_data.get("deadline")
+                            due_dt = None
+                            if deadline_str and deadline_str != "미정":
+                                from datetime import datetime
+                                try:
+                                    due_dt = datetime.strptime(deadline_str, "%Y-%m-%d")
+                                except Exception:
+                                    due_dt = None
+
+                            ai = models.ActionItem(
+                                ITEM_ID=str(ulid.new()),
+                                MEETING_ID=meeting_id,
+                                TITLE=item_data.get("task", ""),
+                                DESCRIPTION=item_data.get("task", ""),
+                                STATUS="PENDING",
+                                PRIORITY="MEDIUM",
+                                ASSIGNEE_ID=None,
+                                ASSIGNEE_NAME=item_data.get("assignee"),
+                                DUE_DT=due_dt
+                            )
+                            db.add(ai)
+
+                        # Index embeddings from fallback text
+                        index_meeting_transcript(db, meeting_id)
+                        db.commit()
+                except Exception:
+                    db.rollback()
+                return {"success": False, "meeting_id": meeting_id, "error": meeting.FINAL_TRANSCRIPT_ERROR}
+        finally:
+            # Always delete temporary file
+            if os.path.exists(audio_path):
+                try:
+                    os.remove(audio_path)
+                    print(f"🗑️ [WORKER] Cleaned up temporary file: {audio_path}")
+                except Exception as e:
+                    print(f"⚠️ [WORKER] Failed to delete temporary file: {audio_path}, error: {e}")
     except Exception as e:
         try:
             meeting = db.query(models.Meeting).filter(models.Meeting.MEETING_ID == meeting_id).first()

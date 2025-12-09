@@ -349,7 +349,7 @@ def update_meeting(
 
 # ==================== 5. 회의 삭제 ====================
 @router.delete("/{meeting_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_meeting(
+async def delete_meeting(
     meeting_id: str,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
@@ -379,31 +379,18 @@ def delete_meeting(
             detail="본인이 생성한 회의만 삭제할 수 있습니다."
         )
     
-    # 오디오 파일 삭제
-    audio_path = db_meeting.LOCATION or db_meeting.AUDIO_URL
-    if audio_path:
+    # S3에서 오디오 파일 삭제
+    object_key = db_meeting.LOCATION or db_meeting.AUDIO_URL
+    if object_key:
         try:
-            # 상대경로/절대경로 처리
-            if not os.path.isabs(audio_path):
-                # 상대경로인 경우 여러 위치 시도
-                possible_paths = [
-                    audio_path,
-                    os.path.join('./audio_storage', os.path.basename(audio_path)),
-                    os.path.join('/app/audio_storage', os.path.basename(audio_path)),
-                ]
-                for path in possible_paths:
-                    if os.path.exists(path):
-                        os.remove(path)
-                        print(f"🗑️ [DELETE] Removed audio file: {path}")
-                        break
-            else:
-                # 절대경로인 경우 직접 삭제
-                if os.path.exists(audio_path):
-                    os.remove(audio_path)
-                    print(f"🗑️ [DELETE] Removed audio file: {audio_path}")
+            from backend.core.storage.service import StorageService
+            storage_service = StorageService()
+            
+            await storage_service.delete_object(object_name=object_key)
+            print(f"🗑️ [DELETE] Removed audio file from S3: {object_key}")
         except Exception as e:
             # 파일 삭제 실패해도 회의는 삭제 진행
-            print(f"⚠️ [DELETE] Failed to remove audio file: {audio_path}, error: {e}")
+            print(f"⚠️ [DELETE] Failed to remove audio file from S3: {object_key}, error: {e}")
     
     # 회의 삭제
     meeting_crud.delete_meeting(db=db, meeting=db_meeting)
@@ -633,13 +620,15 @@ async def get_meeting_audio(
     current_user: models.User = Depends(get_current_user)  # httpOnly Cookie 인증
 ):
     """
-    회의의 오디오 파일을 다운로드합니다.
+    회의의 오디오 파일에 접근하기 위한 pre-signed URL로 리다이렉트합니다.
     
     - **meeting_id**: 회의 ID (ULID)
     
     본인이 생성한 회의의 오디오 파일만 다운로드할 수 있습니다.
     httpOnly Cookie를 통한 인증이 필요합니다.
     """
+    from fastapi.responses import RedirectResponse
+    
     user_id = current_user.USER_ID
     
     # 회의 조회
@@ -659,66 +648,34 @@ async def get_meeting_audio(
             detail="본인이 생성한 회의의 오디오만 다운로드할 수 있습니다."
         )
     
-    # 로컬 파일 경로 확인 (audio_storage 폴더)
-    # Docker 환경에서는 /app/audio_storage, 로컬에서는 ./audio_storage 사용
-    # 여러 경로를 확인하여 파일 찾기
-    possible_dirs = []
-    if os.path.exists('/app/audio_storage'):
-        possible_dirs.append('/app/audio_storage')
+    # S3 Object Key 가져오기
+    object_key = db_meeting.LOCATION or db_meeting.AUDIO_URL
     
-    # 프로젝트 루트 경로 계산 (backend/api/v1/meetings/endpoints.py -> root)
-    try:
-        root_dir = Path(__file__).resolve().parents[4]
-        root_audio_dir = root_dir / "audio_storage"
-        possible_dirs.append(str(root_audio_dir))
-    except:
-        pass
-
-    possible_dirs.append(os.path.abspath('./audio_storage'))
-    possible_dirs.append(os.path.abspath('../audio_storage'))
-    possible_dirs.append(os.path.abspath('./backend/audio_storage'))
-
-    file_path = None
-    found = False
-    
-    # 1. DB에 저장된 경로로 확인
-    audio_path = db_meeting.LOCATION or db_meeting.AUDIO_URL
-    if audio_path:
-        # 경로에서 파일명만 추출
-        filename = os.path.basename(audio_path)
-        
-        for base_dir in possible_dirs:
-            candidate = os.path.join(base_dir, filename)
-            if os.path.exists(candidate):
-                file_path = candidate
-                found = True
-                break
-    
-    # 2. DB 경로로 못 찾은 경우, meeting_id.wav로 확인
-    if not found:
-        filename = f'{meeting_id}.wav'
-        for base_dir in possible_dirs:
-            candidate = os.path.join(base_dir, filename)
-            if os.path.exists(candidate):
-                file_path = candidate
-                found = True
-                break
-    
-    # 파일 존재 확인
-    if not found or not file_path:
-        # 디버깅을 위해 검색한 경로들을 로그로 남기거나 에러 메시지에 포함
-        searched_paths = [os.path.join(d, f'{meeting_id}.wav') for d in possible_dirs]
+    if not object_key:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"오디오 파일을 찾을 수 없습니다. 검색 경로: {searched_paths}"
+            detail=f"오디오 파일이 업로드되지 않았습니다. (meeting_id: {meeting_id})"
         )
     
-    # 파일 반환
-    return FileResponse(
-        path=file_path,
-        media_type="audio/wav",
-        filename=f"{db_meeting.TITLE or meeting_id}.wav"
-    )
+    # Pre-signed URL 생성
+    try:
+        from backend.core.storage.service import StorageService
+        storage_service = StorageService()
+        
+        presigned_url = await storage_service.generate_presigned_url(
+            object_name=object_key,
+            expiration=3600  # 1시간
+        )
+        
+        # Pre-signed URL로 리다이렉트
+        return RedirectResponse(url=presigned_url, status_code=307)
+        
+    except Exception as e:
+        print(f"Failed to generate presigned URL: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"오디오 파일 접근 URL 생성 실패: {str(e)}"
+        )
 
 
 # ==================== 7. 오디오 파일 업로드 ====================
@@ -735,7 +692,7 @@ async def upload_meeting_audio(
     - **meeting_id**: 회의 ID (필수)
     - **file**: 업로드할 오디오 파일 (필수)
     
-    파일은 audio_storage 폴더에 저장되며, DB의 AUDIO_URL과 LOCATION이 자동으로 업데이트됩니다.
+    파일은 NCP Object Storage에 저장되며, DB의 AUDIO_URL과 LOCATION에 S3 Object Key가 저장됩니다.
     """
     # 1. 회의 존재 여부 확인
     db_meeting = meeting_crud.get_meeting(db, meeting_id=meeting_id)
@@ -752,50 +709,53 @@ async def upload_meeting_audio(
             detail="본인이 생성한 회의의 오디오만 업로드할 수 있습니다."
         )
     
-    # 3. 파일 저장
-    base_audio_dir = None
-    if os.path.exists('/app/audio_storage'):
-        base_audio_dir = '/app/audio_storage'
-    else:
-        # 프로젝트 루트 경로 계산 (backend/api/v1/meetings/endpoints.py -> root)
-        try:
-            root_dir = Path(__file__).resolve().parents[4]
-            base_audio_dir = str(root_dir / "audio_storage")
-        except:
-            base_audio_dir = './audio_storage'
-
-    os.makedirs(base_audio_dir, exist_ok=True)
+    # 3. 임시 파일로 저장
+    import tempfile
+    temp_dir = tempfile.gettempdir()
+    temp_file_path = os.path.join(temp_dir, f'{meeting_id}.wav')
     
-    file_path = os.path.join(base_audio_dir, f'{meeting_id}.wav')
-    print(f"Saving audio to: {file_path}")  # Debug log
+    print(f"Saving audio to temp: {temp_file_path}")  # Debug log
     
     try:
-        with open(file_path, 'wb') as buffer:
-            content = await file.read()
+        # 임시 파일에 업로드된 내용 저장
+        content = await file.read()
+        with open(temp_file_path, 'wb') as buffer:
             buffer.write(content)
+        
+        # 4. NCP Object Storage에 업로드
+        from backend.core.storage.service import StorageService
+        storage_service = StorageService()
+        
+        object_key = await storage_service.upload_to_ncp_object_stroage(
+            local_path=temp_file_path,
+            meeting_id=meeting_id
+        )
+        
+        # 5. DB 업데이트 - S3 Object Key 저장
+        db_meeting.AUDIO_URL = object_key
+        db_meeting.LOCATION = object_key
+        db.commit()
+        
+        print(f"✅ Audio uploaded to NCP: {object_key}")
+        
+        return {
+            "message": "오디오 파일이 업로드되었습니다.",
+            "audio_url": object_key,
+            "file_size": len(content)
+        }
+        
     except Exception as e:
-        print(f"Failed to save audio file: {e}") # Debug log
+        print(f"Failed to upload audio file: {e}") # Debug log
+        # 임시 파일 정리
+        if os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except:
+                pass
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"파일 저장 실패: {str(e)}"
+            detail=f"파일 업로드 실패: {str(e)}"
         )
-    
-    # 4. DB 업데이트
-    # 저장된 위치를 기준으로 상대 경로 저장 (또는 절대 경로)
-    # 여기서는 일관성을 위해 ./audio_storage/... 형식으로 저장하거나
-    # 실제 저장된 위치를 반영하는 것이 좋음.
-    # 하지만 기존 로직 유지를 위해 ./audio_storage/로 저장하되,
-    # get_meeting_audio에서 잘 찾도록 함.
-    audio_url = f'./audio_storage/{meeting_id}.wav'
-    db_meeting.AUDIO_URL = audio_url
-    db_meeting.LOCATION = audio_url
-    db.commit()
-    
-    return {
-        "message": "오디오 파일이 업로드되었습니다.",
-        "audio_url": audio_url,
-        "file_size": len(content)
-    }
 
 # ==================== 8. 회의 재전사 작업 큐 등록 (ElevenLabs) ====================
 @router.post("/{meeting_id}/finalize", status_code=status.HTTP_202_ACCEPTED)

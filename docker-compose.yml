@@ -1,73 +1,74 @@
+version: '3.8'
 
 services:
-  # PostgreSQL 서비스 정의
-  db:
-    image: pgvector/pgvector:pg15
-    container_name: roundnote_db
-    environment:
-      # Docker 내부에서 사용할 PostgreSQL 환경 변수 (아래 .env 파일과 일치해야 함)
-      POSTGRES_USER: roundnote_user
-      POSTGRES_PASSWORD: roundnote_password
-      POSTGRES_DB: roundnote_db
-      TZ: Asia/Seoul
-    ports:
-      - "5432:5432"
+  # 1. Nginx 서비스 정의 (Gate-way 역할)
+  nginx:
+    container_name: roundnote_nginx
+    image: nginx:stable-alpine
+    # nginx.conf 파일이 들어있는 디렉토리를 마운트
     volumes:
-      - postgres_data:/var/lib/postgresql/data # 데이터 영속성을 위해 볼륨 연결
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    # Public Subnet의 80번 포트를 컨테이너의 80번 포트에 연결 (외부 노출)
+    ports:
+      - "80:80"
+    depends_on:
+      - frontend
+      - api
+    restart: always # 서버 재시작 시 Nginx 자동 실행
 
-  # Redis 서비스 정의
+  # 2. Frontend 서비스 정의 (Next.js)
+  frontend:
+    container_name: roundnote_frontend
+    build:
+      context: .
+      dockerfile: ./frontend/Dockerfile # 이전에 생성한 Dockerfile 사용
+    ports:
+      - "3000:3000" # Nginx가 내부 통신에 사용
+    restart: always
+
+  # 3. API 서비스 정의 (FastAPI)
+  api:
+    container_name: roundnote_api
+    build:
+      context: .
+      dockerfile: ./backend/Dockerfile
+    # NCP 환경 변수가 포함된 .env.prod 파일 사용
+    env_file:
+      - ./.env.prod
+    # 로컬 개발용 볼륨은 제거하고, 오직 코드와 오디오 저장소만 마운트
+    volumes:
+      - ./backend:/app/backend
+      - ./audio_storage:/app/audio_storage
+    working_dir: /app/backend
+    # DB 마이그레이션 명령은 별도로 실행할 것이므로, API는 Uvicorn만 실행
+    command: python -m uvicorn main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      # Managed DB를 사용하므로, Redis에만 의존
+      - redis
+    restart: always
+
+  # 4. Worker 서비스 정의 (비동기 작업 처리)
+  worker:
+    container_name: roundnote_worker
+    build:
+      context: .
+      dockerfile: ./backend/Dockerfile
+    env_file:
+      - ./.env.prod
+    volumes:
+      - ./backend:/app/backend
+      - ./audio_storage:/app/audio_storage
+    working_dir: /app/backend
+    # RQ Worker 실행 명령
+    command: python worker.py
+    depends_on:
+      - redis
+    restart: always
+
+  # 5. Redis 서비스 정의 (Messaging Queue)
   redis:
     image: redis:7-alpine
     container_name: roundnote_redis
     ports:
       - "6379:6379"
-
-  # FastAPI 백엔드 + RQ Worker 통합 서비스
-  backend:
-    container_name: roundnote_backend
-    build:
-      context: .
-      dockerfile: ./backend/Dockerfile
-    env_file:
-      - ./backend/.env
-    environment:
-      - PYTHONPATH=/app
-      - ENVIRONMENT=development
-      - PYTHONDONTWRITEBYTECODE=1
-      - PYTHONUNBUFFERED=1
-    ports:
-      - "8000:8000"
-    depends_on:
-      - db
-      - redis
-    volumes:
-      - ./backend:/app/backend
-      - ./audio_storage:/app/audio_storage
-    working_dir: /app/backend
-    # API와 Worker를 동시에 실행
-    command: /bin/sh -c "alembic upgrade head && (python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload &) && sleep 3 && python worker.py"
-
-  # RQ Worker 서비스 정의 (ElevenLabs 배치 전사 처리) - 현재는 backend 서비스에 통합되어 있음
-  # worker:
-  #   container_name: roundnote_worker
-  #   build:
-  #     context: .
-  #     dockerfile: ./backend/Dockerfile
-  #   env_file:
-  #     - ./backend/.env
-  #   environment:
-  #     - PYTHONPATH=/app
-  #     - REDIS_URL=redis://redis:6379/0
-  #     - DATABASE_URL=postgresql://roundnote_user:roundnote_password@db:5432/roundnote_db
-  #   depends_on:
-  #     - db
-  #     - redis
-  #   volumes:
-  #     - ./backend:/app/backend
-  #     - ./audio_storage:/app/audio_storage
-  #   working_dir: /app
-  #   command: python backend/worker.py
-
-# PostgreSQL 데이터 영속성 볼륨 정의
-volumes:
-  postgres_data:
+    restart: always

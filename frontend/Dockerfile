@@ -1,0 +1,41 @@
+# 1. 빌드 스테이지 (Builder Stage): Next.js 애플리케이션을 빌드합니다.
+# 이 스테이지는 최종 이미지에 포함되지 않으며, 빌드 결과물만 전달합니다.
+FROM node:20-alpine AS builder
+
+# 작업 디렉토리 설정
+WORKDIR /app
+
+# 캐시 최적화를 위해 lock 파일과 package.json 먼저 복사
+COPY package.json yarn.lock ./
+
+# 의존성 설치
+RUN yarn install
+
+# 전체 소스 코드 복사
+COPY . .
+
+# Next.js 애플리케이션 빌드 (프로덕션 환경 최적화)
+RUN yarn build
+
+
+# 2. 실행 스테이지 (Runner Stage): 가볍고 안전한 환경에서 빌드된 결과물을 실행합니다.
+FROM node:20-alpine AS runner
+
+# 작업 디렉토리 설정
+WORKDIR /app
+
+# 프로덕션 환경에서 필요한 의존성만 설치합니다.
+COPY package.json yarn.lock ./
+RUN yarn install --production
+
+# 빌드 스테이지에서 생성된 결과물(.next, public) 및 기타 파일 복사
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+
+# Next.js 서버를 실행할 포트 노출 (Docker 내부 포트)
+EXPOSE 3000
+
+# Next.js 애플리케이션 실행
+CMD ["yarn", "start"]

@@ -185,18 +185,20 @@ async def websocket_endpoint(
                     except Exception as e:
                         logging.error(f"Failed to rename audio file: {e}")
 
-                # DB Update: meetingId가 있으면 오디오 경로 및 참여자 정보 업데이트
+                # Upload to NCP Object Storage and update DB
                 if final_meeting_id:
                     try:
-                        # Use relative path for portability
-                        relative_path = f"./audio_storage/{os.path.basename(file_path)}"
+                        logging.info(f"NCP Object Storage 업로드 시작: {file_path}")
+                        object_key = await storage_service.upload_to_ncp_object_stroage(file_path, meeting_id=final_meeting_id)
+                        logging.info(f"NCP Object Storage 업로드 완료. 객체 키: {object_key}")
                         
                         # We need to run sync DB operation in async context
                         def update_db():
                             meeting = meeting_crud.get_meeting(db, final_meeting_id)
                             if meeting:
-                                meeting.AUDIO_URL = relative_path
-                                meeting.LOCATION = relative_path
+                                # Store S3 object key instead of local path
+                                meeting.AUDIO_URL = object_key
+                                meeting.LOCATION = object_key
                                 
                                 # 참여자 목록을 PARTICIPANTS 필드에 저장 (원본 목록 사용: 한글 포함)
                                 if participant_list:
@@ -206,24 +208,27 @@ async def websocket_endpoint(
                                     logging.info(f"[WebSocket] ⚠️ No participant_list to save for meeting {final_meeting_id}")
                                 
                                 db.commit()
-                                logging.info(f"Updated meeting {final_meeting_id} audio_url to {relative_path}")
+                                logging.info(f"Updated meeting {final_meeting_id} with S3 object key: {object_key}")
                             else:
                                 logging.warning(f"Meeting {final_meeting_id} not found for audio update")
                         
                         await asyncio.to_thread(update_db)
                     except Exception as e:
-                        logging.error(f"Failed to update meeting audio URL: {e}")
-
-                # try:
-                #     logging.info("NCP Object Storage 업로드 시작...")
-                #     objecct_key = await storage_service.upload_to_ncp_object_stroage(file_path, meeting_id=os.path.basename(file_path).split('.')[0])
-                #     logging.info(f"NCP Object Storage 업로드 완료. 객체 키: {objecct_key}")
-                    
-                #     # TODO: 업로드된 객체 키를 DB에 저장하는 로직 추가
-                #     # TODO: RQ에 작업 큐잉 ex) await redis_queue.enqueue("process_batch_transcription", meeting_id, object_key)
-                    
-                # except Exception as e:
-                #     logging.error(f"❌ NCP Object Storage 업로드 실패: {e}")
+                        logging.error(f"Failed to upload to S3 or update meeting: {e}")
+                        # Fallback: store local path if S3 upload fails
+                        try:
+                            relative_path = f"./audio_storage/{os.path.basename(file_path)}"
+                            def update_db_fallback():
+                                meeting = meeting_crud.get_meeting(db, final_meeting_id)
+                                if meeting:
+                                    meeting.AUDIO_URL = relative_path
+                                    meeting.LOCATION = relative_path
+                                    if participant_list:
+                                        meeting.PARTICIPANTS = participant_list
+                                    db.commit()
+                            await asyncio.to_thread(update_db_fallback)
+                        except Exception as e2:
+                            logging.error(f"Fallback DB update also failed: {e2}")
                     
             except Exception as e:
                 logging.error(f"❌ wave_file 닫기 실패: {e}")

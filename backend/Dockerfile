@@ -31,4 +31,4 @@ COPY backend ./backend
 # 5. 애플리케이션 실행
 # 컨테이너가 시작될 때 uvicorn을 실행하여 main.py의 app 객체를 
 # 0.0.0.0:8000 포트로 서비스합니다. (localhost 대신 0.0.0.0을 사용해야 외부 접근이 가능)
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

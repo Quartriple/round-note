@@ -95,3 +95,5 @@ ELEVENLABS_INTEGRATION_COMPLETE.md
 analyze_wav_deep.py
 analyze_wav.py
 backend/.env.local
+ncp_env
+logs/

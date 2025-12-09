@@ -108,7 +108,7 @@ class StorageService:
 
         try:
             await asyncio.to_thread(
-                self.s3.upload_file(local_path, self.ncp_bucket_name, object_name)
+                self.s3.upload_file, local_path, self.ncp_bucket_name, object_name
             )
             
             logging.info(f"NCP Object Storage 업로드 성공: {local_path} -> {self.ncp_bucket_name}/{object_name}")
@@ -129,7 +129,7 @@ class StorageService:
             logging.error(f"NCP Object Storage 알 수 없는 오류: {e}")
             raise e
     
-    def download_from_ncp(self, object_name: str, local_path: str) -> bool:
+    async def download_from_ncp(self, object_name: str, local_path: str) -> bool:
         """
         NCP Object Storage에서 파일을 다운로드합니다.
         
@@ -148,7 +148,9 @@ class StorageService:
             # 디렉토리 생성
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
             
-            self.s3.download_file(self.ncp_bucket_name, object_name, local_path)
+            await asyncio.to_thread(
+                self.s3.download_file, self.ncp_bucket_name, object_name, local_path
+            )
             logging.info(f"✅ NCP에서 다운로드 성공: {self.ncp_bucket_name}/{object_name} -> {local_path}")
             return True
         except ClientError as e:
@@ -161,3 +163,59 @@ class StorageService:
         except Exception as e:
             logging.error(f"❌ NCP 다운로드 중 알 수 없는 오류: {e}")
             return False
+    
+    async def generate_presigned_url(self, object_name: str, expiration: int = 3600) -> str:
+        """
+        S3 객체에 대한 pre-signed URL을 생성합니다.
+        
+        Args:
+            object_name: S3 객체 이름 (예: meeting_id.wav)
+            expiration: URL 만료 시간 (초 단위, 기본값: 3600초 = 1시간)
+            
+        Returns:
+            pre-signed URL 문자열
+        """
+        if not self.s3:
+            logging.error("NCP Object Storage 클라이언트가 초기화되지 않았습니다.")
+            raise Exception("NCP Object Storage client is not initialized.")
+        
+        try:
+            url = await asyncio.to_thread(
+                self.s3.generate_presigned_url,
+                'get_object',
+                Params={'Bucket': self.ncp_bucket_name, 'Key': object_name},
+                ExpiresIn=expiration
+            )
+            logging.info(f"✅ Pre-signed URL 생성 성공: {object_name} (만료: {expiration}초)")
+            return url
+        except ClientError as e:
+            logging.error(f"❌ Pre-signed URL 생성 실패: {e}")
+            raise e
+        except Exception as e:
+            logging.error(f"❌ Pre-signed URL 생성 중 알 수 없는 오류: {e}")
+            raise e
+    
+    async def delete_object(self, object_name: str) -> None:
+        """
+        S3 버킷에서 객체를 삭제합니다.
+        
+        Args:
+            object_name: 삭제할 S3 객체 이름 (예: meeting_id.wav)
+        """
+        if not self.s3:
+            logging.error("NCP Object Storage 클라이언트가 초기화되지 않았습니다.")
+            raise Exception("NCP Object Storage client is not initialized.")
+        
+        try:
+            await asyncio.to_thread(
+                self.s3.delete_object,
+                Bucket=self.ncp_bucket_name,
+                Key=object_name
+            )
+            logging.info(f"✅ S3 객체 삭제 성공: {self.ncp_bucket_name}/{object_name}")
+        except ClientError as e:
+            logging.error(f"❌ S3 객체 삭제 실패: {e}")
+            raise e
+        except Exception as e:
+            logging.error(f"❌ S3 객체 삭제 중 알 수 없는 오류: {e}")
+            raise e
